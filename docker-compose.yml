@@ -1,0 +1,230 @@
+services:
+  iot-analytics:
+    build:
+      context: .
+      dockerfile: iot-analytics/Dockerfile
+    image: iot-analytics:latest
+    container_name: iot-analytics
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVER_PORT=8081
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_PROFILES_ACTIVE=elk,docker
+      - JAVA_TOOL_OPTIONS=-Xshare:off
+      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - iot-network
+
+  iot-controller:
+    build:
+      context: .
+      dockerfile: iot-controller/Dockerfile
+    image: iot-controller:latest
+    container_name: iot-controller
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_PORT=8082
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/iot_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_PROFILES_ACTIVE=elk,docker
+      - JAVA_TOOL_OPTIONS=-Xshare:off
+      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+    depends_on:
+      mongodb:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - iot-network
+
+  iot-data-simulator:
+    build:
+      context: .
+      dockerfile: iot-data-simulator/Dockerfile
+    image: iot-data-simulator:latest
+    container_name: iot-data-simulator
+    ports:
+      - "8080:8080"
+    environment:
+      - CONTROLLER_URL=http://iot-controller:8082/api/ingest
+      - SPRING_PROFILES_ACTIVE=elk,docker
+      - JAVA_TOOL_OPTIONS=-Xshare:off
+      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+    depends_on:
+      - iot-controller
+    networks:
+      - iot-network
+
+  iot-rule-engine:
+    build:
+      context: .
+      dockerfile: iot-rule-engine/Dockerfile
+    image: iot-rule-engine:latest
+    container_name: iot-rule-engine
+    ports:
+      - "8083:8083"
+    environment:
+      - SERVER_PORT=8083
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_PROFILES_ACTIVE=elk,docker
+      - JAVA_TOOL_OPTIONS=-Xshare:off
+      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - iot-network
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - iot-network
+
+  rabbitmq:
+    image: rabbitmq:4.0-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iot-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - iot-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    environment:
+      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - iot-network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - XPACK_SECURITY_ENABLED=false
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=something_at_least_32_characters_long_kibana_key
+      - XPACK_REPORTING_ENCRYPTIONKEY=something_at_least_32_characters_long_reporting_key
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - iot-network
+
+  kibana-setup:
+    image: curlimages/curl:latest
+    container_name: kibana-setup
+    depends_on:
+      kibana:
+        condition: service_healthy
+    networks:
+      - iot-network
+    command: >
+      sh -c "echo 'Waiting for Kibana to be fully ready...'; sleep 20; curl -X POST 'http://kibana:5601/api/data_views/data_view' \
+        -H 'Content-Type: application/json' \
+        -H 'kbn-xsrf: true' \
+        -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}';
+      echo 'Kibana Data View created successfully.'"
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    container_name: filebeat
+    user: root
+    volumes:
+      - ./elk/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - logstash
+    command: [ "filebeat", "-e", "--strict.perms=false" ]
+    networks:
+      - iot-network
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - iot-network
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - iot-network
+
+volumes:
+  mongo_data:
+  elasticsearch_data:
+  prometheus_data:
+  grafana_data:
+
+
+networks:
+  iot-network:
+    driver: bridge

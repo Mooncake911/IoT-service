@@ -1,0 +1,38 @@
+# Build results
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Git
+.git/
+.gitignore
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Logs
+*.log
+
+# Documentation
+*.md
+
+# OS specific
+**/.DS_Store
+Thumbs.db
+
+# Maven wrapper (we use the one in the base image usually, but okay to ignore local one if we rely on Docker's maven)
+.mvn/
+mvnw
+mvnw.cmd

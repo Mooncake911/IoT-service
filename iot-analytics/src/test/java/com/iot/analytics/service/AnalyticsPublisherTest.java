@@ -1,6 +1,6 @@
-package com.iot.ruleengine.service;
+package com.iot.analytics.service;
 
-import com.iot.shared.domain.AlertData;
+import com.iot.shared.domain.AnalyticsData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,37 +11,37 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
-public class AlertPublisherTest {
+@DisplayName("Analytics Publisher Communication Test")
+public class AnalyticsPublisherTest {
 
     @Mock
     private RabbitTemplate rabbitTemplate;
 
     @InjectMocks
-    private AlertPublisher publisher;
+    private AnalyticsPublisher publisher;
 
     @BeforeEach
-    public void setUp() {
-        ReflectionTestUtils.setField(publisher, "alertsExchangeName", "alerts.exchange");
+    void setUp() {
+        ReflectionTestUtils.setField(publisher, "analyticsExchangeName", "analytics.exchange");
     }
 
     @Test
-    @DisplayName("Should send alert to RabbitMQ exchange")
+    @DisplayName("Should send analytics data to RabbitMQ exchange")
     void publish_shouldSendToRabbit() {
         // Arrange
-        AlertData alert = new AlertData(
-                "abc", 1L, "RULE", "Rule", "CRITICAL",
-                10, 20, LocalDateTime.now(), "INSTANT");
+        AnalyticsData data = new AnalyticsData(1L, Instant.now(), Map.of("avgBatt", 80.0));
 
         // Act
-        publisher.publish(alert);
+        publisher.publish(data);
 
         // Assert
-        verify(rabbitTemplate).convertAndSend(eq("alerts.exchange"), eq(""), eq(alert));
+        verify(rabbitTemplate).convertAndSend(eq("analytics.exchange"), eq(""), eq(data));
     }
 }

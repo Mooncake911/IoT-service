@@ -1,11 +1,10 @@
 package com.iot.ruleengine.engine;
 
 import com.iot.ruleengine.model.Rule;
-import com.iot.ruleengine.model.RuleType;
 import com.iot.ruleengine.rules.HardcodedRules;
 import com.iot.ruleengine.service.AlertPublisher;
-import com.iot.shared.domain.AlertTriggered;
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.AlertData;
+import com.iot.shared.domain.DeviceData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -40,26 +39,26 @@ public class RuleEngine {
      * Processes a device message and evaluates all rules.
      * Publishes alerts for any triggered rules.
      *
-     * @param device The device data to evaluate
+     * @param deviceData The device data to evaluate
      * @return List of triggered alerts
      */
-    public List<AlertTriggered> processDevice(Device device) {
-        if (device == null) {
+    public List<AlertData> processDevice(DeviceData deviceData) {
+        if (deviceData == null) {
             log.warn("Received null device, skipping");
             return List.of();
         }
 
-        if (device.getStatus() == null) {
-            log.debug("Device {} has no status, skipping rule evaluation", device.getId());
+        if (deviceData.status() == null) {
+            log.debug("Device {} has no status, skipping rule evaluation", deviceData.id());
             return List.of();
         }
 
-        List<AlertTriggered> triggeredAlerts = new ArrayList<>();
+        List<AlertData> triggeredAlerts = new ArrayList<>();
 
         // Process instant rules
         for (Rule rule : hardcodedRules.getInstantRules()) {
-            if (rule.evaluate(device)) {
-                AlertTriggered alert = createAlert(device, rule);
+            if (rule.evaluate(deviceData)) {
+                AlertData alert = createAlert(deviceData, rule);
                 triggeredAlerts.add(alert);
                 log.info("Instant rule triggered: {}", alert);
             }
@@ -67,18 +66,18 @@ public class RuleEngine {
 
         // Process duration rules
         for (Rule rule : hardcodedRules.getDurationRules()) {
-            boolean conditionMet = rule.evaluate(device);
-            boolean shouldTrigger = stateTracker.recordAndCheck(device.getId(), rule, conditionMet);
+            boolean conditionMet = rule.evaluate(deviceData);
+            boolean shouldTrigger = stateTracker.recordAndCheck(deviceData.id(), rule, conditionMet);
 
             if (shouldTrigger) {
-                AlertTriggered alert = createAlert(device, rule);
+                AlertData alert = createAlert(deviceData, rule);
                 triggeredAlerts.add(alert);
                 log.info("Duration rule triggered: {}", alert);
             }
         }
 
         // Publish all triggered alerts
-        for (AlertTriggered alert : triggeredAlerts) {
+        for (AlertData alert : triggeredAlerts) {
             alertPublisher.publish(alert);
         }
 
@@ -88,14 +87,14 @@ public class RuleEngine {
     /**
      * Creates an AlertTriggered event from a device and rule.
      */
-    private AlertTriggered createAlert(Device device, Rule rule) {
-        return new AlertTriggered(
+    private AlertData createAlert(DeviceData deviceData, Rule rule) {
+        return new AlertData(
                 UUID.randomUUID().toString(),
-                device.getId(),
+                deviceData.id(),
                 rule.id(),
                 rule.name(),
                 rule.severity().name(),
-                rule.extractValue(device),
+                rule.extractValue(deviceData),
                 rule.threshold(),
                 LocalDateTime.now(),
                 rule.type().name());

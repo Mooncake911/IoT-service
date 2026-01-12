@@ -1,31 +1,32 @@
 package com.iot.analytics.controller;
 
 import com.iot.analytics.service.AnalyticsService;
-import com.iot.analytics.statistics.model.DeviceStats;
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/analytics")
+@Slf4j
+@RequiredArgsConstructor
 public class AnalyticsController {
 
     private final AnalyticsService analyticsService;
 
-    public AnalyticsController(AnalyticsService analyticsService) {
-        this.analyticsService = analyticsService;
-    }
-
     @PostMapping("/data")
-    public Mono<Void> receiveData(@RequestBody java.util.List<Device> devices) {
-        return analyticsService.processData(Flux.fromIterable(devices));
+    public Mono<Void> receiveData(@RequestBody List<DeviceData> deviceData) {
+        log.debug("Received analytics data batch: size={}", deviceData.size());
+        return analyticsService.calculateAndPublishStats(deviceData);
     }
 
-    @GetMapping("/stats")
-    public Mono<DeviceStats> getStats(
-            @RequestParam(name = "method", defaultValue = "Observable") String method,
-            @RequestParam(name = "batchSize", defaultValue = "50") int batchSize) {
-        return analyticsService.getCurrentStats(method, batchSize);
+    @PostMapping("/config")
+    public Mono<String> setConfig(@RequestParam String method, @RequestParam int batchSize) {
+        log.info("Updating analytics config: method={}, batchSize={}", method, batchSize);
+        analyticsService.setCalculationMethod(method, batchSize);
+        return Mono.just("Calculation method switched to: " + method + " (batch size: " + batchSize + ")");
     }
 }

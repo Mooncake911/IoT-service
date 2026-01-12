@@ -1,6 +1,6 @@
 package com.iot.analytics.statistics.computation;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import com.iot.analytics.statistics.model.DeviceStats;
 import com.iot.analytics.statistics.model.StatsConfig;
 
@@ -21,8 +21,8 @@ public class DeviceStatsReactive {
     /**
      * Вариант с Observable.
      */
-    public Observable<DeviceStats> computeObservable(List<Device> devices, int batchSize) {
-        return Observable.fromIterable(devices)
+    public Observable<DeviceStats> computeObservable(List<DeviceData> deviceData, int batchSize) {
+        return Observable.fromIterable(deviceData)
                 .buffer(batchSize)
                 .flatMap(batch -> Observable.fromCallable(() -> processBatch(batch))
                         .subscribeOn(Schedulers.io()))
@@ -34,7 +34,7 @@ public class DeviceStatsReactive {
     /**
      * Вариант с Flowable.
      */
-    public Flowable<DeviceStats> computeFlowable(Flowable<Device> deviceFlow, int batchSize) {
+    public Flowable<DeviceStats> computeFlowable(Flowable<DeviceData> deviceFlow, int batchSize) {
         return deviceFlow
                 .buffer(batchSize)
                 .flatMap(batch -> Flowable.fromCallable(() -> processBatch(batch))
@@ -47,7 +47,7 @@ public class DeviceStatsReactive {
     /**
      * Вариант с ParallelFlowable (Rails pattern).
      */
-    public Flowable<DeviceStats> computeFlowableParallel(Flowable<Device> deviceFlow, int batchSize, int parallelism) {
+    public Flowable<DeviceStats> computeFlowableParallel(Flowable<DeviceData> deviceFlow, int batchSize, int parallelism) {
         return deviceFlow
                 .buffer(batchSize)
                 .parallel(parallelism)
@@ -61,11 +61,11 @@ public class DeviceStatsReactive {
 
     // --- Синхронные методы ---
 
-    public DeviceStats computeObservableSync(List<Device> devices, int batchSize) {
+    public DeviceStats computeObservableSync(List<DeviceData> deviceData, int batchSize) {
         AtomicReference<DeviceStats> result = new AtomicReference<>(DeviceStats.empty());
         AtomicReference<Throwable> error = new AtomicReference<>();
         try {
-            computeObservable(devices, batchSize).blockingSubscribe(result::set, error::set);
+            computeObservable(deviceData, batchSize).blockingSubscribe(result::set, error::set);
         } catch (Exception e) {
             error.set(e);
         }
@@ -74,7 +74,7 @@ public class DeviceStatsReactive {
         return result.get();
     }
 
-    public DeviceStats computeFlowableSync(Flowable<Device> deviceFlow, int batchSize) {
+    public DeviceStats computeFlowableSync(Flowable<DeviceData> deviceFlow, int batchSize) {
         AtomicReference<DeviceStats> result = new AtomicReference<>(DeviceStats.empty());
         AtomicReference<Throwable> error = new AtomicReference<>();
         try {
@@ -87,7 +87,7 @@ public class DeviceStatsReactive {
         return result.get();
     }
 
-    public DeviceStats computeFlowableParallelSync(Flowable<Device> deviceFlow, int batchSize, int parallelism) {
+    public DeviceStats computeFlowableParallelSync(Flowable<DeviceData> deviceFlow, int batchSize, int parallelism) {
         AtomicReference<DeviceStats> result = new AtomicReference<>(DeviceStats.empty());
         AtomicReference<Throwable> error = new AtomicReference<>();
         try {
@@ -103,7 +103,7 @@ public class DeviceStatsReactive {
     /**
      * Вариант с Custom Subscriber
      */
-    public DeviceStats computeWithCustomSubscriber(Flowable<Device> deviceFlow, int batchSize) {
+    public DeviceStats computeWithCustomSubscriber(Flowable<DeviceData> deviceFlow, int batchSize) {
         DeviceStatsSubscriber subscriber = new DeviceStatsSubscriber(statsConfig, batchSize);
         deviceFlow.subscribe(subscriber);
 
@@ -120,11 +120,11 @@ public class DeviceStatsReactive {
         return subscriber.getResult();
     }
 
-    private DeviceStatsAccumulator processBatch(List<Device> batch) {
+    private DeviceStatsAccumulator processBatch(List<DeviceData> batch) {
         DeviceStatsAccumulator accumulator = new DeviceStatsAccumulator(statsConfig);
-        for (Device device : batch) {
-            if (device != null) {
-                accumulator.accept(device);
+        for (DeviceData deviceData : batch) {
+            if (deviceData != null) {
+                accumulator.accept(deviceData);
             }
         }
         return accumulator;

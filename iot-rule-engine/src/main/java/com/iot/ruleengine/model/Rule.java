@@ -1,6 +1,6 @@
 package com.iot.ruleengine.model;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -24,16 +24,16 @@ public record Rule(
         String name,
         RuleType type,
         Severity severity,
-        Predicate<Device> condition,
-        Function<Device, Object> valueExtractor,
+        Predicate<DeviceData> condition,
+        Function<DeviceData, Object> valueExtractor,
         Object threshold,
         int requiredPackets) {
     /**
      * Creates an INSTANT rule (triggers on single packet).
      */
     public static Rule instant(String id, String name, Severity severity,
-            Predicate<Device> condition,
-            Function<Device, Object> valueExtractor,
+            Predicate<DeviceData> condition,
+            Function<DeviceData, Object> valueExtractor,
             Object threshold) {
         return new Rule(id, name, RuleType.INSTANT, severity, condition, valueExtractor, threshold, 1);
     }
@@ -42,8 +42,8 @@ public record Rule(
      * Creates a DURATION rule (triggers after N consecutive packets).
      */
     public static Rule duration(String id, String name, Severity severity,
-            Predicate<Device> condition,
-            Function<Device, Object> valueExtractor,
+            Predicate<DeviceData> condition,
+            Function<DeviceData, Object> valueExtractor,
             Object threshold, int requiredPackets) {
         return new Rule(id, name, RuleType.DURATION, severity, condition, valueExtractor, threshold, requiredPackets);
     }
@@ -51,20 +51,20 @@ public record Rule(
     /**
      * Evaluates the rule condition against a device.
      */
-    public boolean evaluate(Device device) {
-        if (device == null || device.getStatus() == null) {
+    public boolean evaluate(DeviceData deviceData) {
+        if (deviceData == null || deviceData.status() == null) {
             return false;
         }
-        return condition.test(device);
+        return condition.test(deviceData);
     }
 
     /**
      * Extracts the current value from the device for including in the alert.
      */
-    public Object extractValue(Device device) {
-        if (device == null) {
+    public Object extractValue(DeviceData deviceData) {
+        if (deviceData == null) {
             return null;
         }
-        return valueExtractor.apply(device);
+        return valueExtractor.apply(deviceData);
     }
 }

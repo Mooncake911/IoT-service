@@ -1,38 +1,30 @@
 package com.iot.ruleengine.service;
 
-import com.iot.ruleengine.config.RabbitConfig;
-import com.iot.shared.domain.AlertTriggered;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.iot.shared.domain.AlertData;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-/**
- * Publishes AlertTriggered events to RabbitMQ alerts.exchange.
- * IoT Controller subscribes to this exchange to persist alerts to MongoDB.
- */
 @Service
+@Slf4j
 public class AlertPublisher {
 
-    private static final Logger log = LoggerFactory.getLogger(AlertPublisher.class);
-
     private final RabbitTemplate rabbitTemplate;
+
+    @Value("${app.rabbitmq.exchange.alerts}")
+    private String alertsExchangeName;
 
     public AlertPublisher(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
     }
 
-    /**
-     * Publishes an alert to the alerts exchange.
-     *
-     * @param alert The alert to publish
-     */
-    public void publish(AlertTriggered alert) {
+    public void publish(AlertData alert) {
         try {
-            rabbitTemplate.convertAndSend(RabbitConfig.ALERTS_EXCHANGE_NAME, "", alert);
-            log.debug("Published alert: {} for device {}", alert.ruleId(), alert.deviceId());
+            log.debug("Publishing alert: {} for device {}", alert.ruleId(), alert.deviceId());
+            rabbitTemplate.convertAndSend(alertsExchangeName, "", alert);
         } catch (Exception e) {
-            log.error("Failed to publish alert: {}", alert, e);
+            log.error("Failed to publish alert for device {}: {}", alert.deviceId(), e.getMessage());
         }
     }
 }

@@ -1,105 +1,127 @@
 package com.iot.analytics.service;
 
-import com.iot.analytics.repository.ReactiveDeviceRepository;
 import com.iot.analytics.statistics.DeviceStatistics;
 import com.iot.analytics.statistics.model.DeviceStats;
 import com.iot.analytics.statistics.model.StatsConfig;
-import com.iot.shared.domain.Device;
-import io.reactivex.rxjava3.core.BackpressureStrategy;
-import io.reactivex.rxjava3.core.Flowable;
-import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
+import com.iot.shared.domain.DeviceData;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
-import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 public class AnalyticsService {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AnalyticsService.class);
+    private final AtomicReference<String> currentMethod;
+    private final AtomicInteger currentBatchSize;
 
-    private final ReactiveDeviceRepository deviceRepository;
+    private final AnalyticsPublisher analyticsPublisher;
     private final DeviceStatistics deviceStatistics = new DeviceStatistics(StatsConfig.all());
 
-    public AnalyticsService(ReactiveDeviceRepository deviceRepository) {
-        this.deviceRepository = deviceRepository;
+    public AnalyticsService(AnalyticsPublisher analyticsPublisher,
+            @Value("${app.analytics.default-method}") String defaultMethod,
+            @Value("${app.analytics.default-batch-size}") int defaultBatchSize) {
+        this.analyticsPublisher = analyticsPublisher;
+        this.currentMethod = new AtomicReference<>(defaultMethod);
+        this.currentBatchSize = new AtomicInteger(defaultBatchSize);
     }
 
-    public Mono<Void> processData(Flux<Device> devices) {
-        return devices.doOnNext(deviceRepository::save).then();
-    }
-
-    public Mono<DeviceStats> getCurrentStats(String method, int batchSize) {
-        return deviceRepository.findRecentDevices(Duration.ofMinutes(5))
-                .collectList()
-                .flatMap(devices -> computeStatsReactive(devices, method, batchSize))
-                .timeout(Duration.ofSeconds(60))
-                .onErrorResume(e -> {
-                    log.error("Stats computation failed", e);
-                    return Mono.just(DeviceStats.builder().build());
-                });
-    }
-
-    private Mono<DeviceStats> computeStatsReactive(List<Device> devices, String method, int batchSize) {
-        if (devices.isEmpty()) {
+    private Mono<DeviceStats> computeStats(List<DeviceData> deviceData, String method, int batchSize) {
+        if (deviceData.isEmpty()) {
             return Mono.just(DeviceStats.builder().build());
         }
 
         return switch (method) {
             case "Sequential" ->
-                Mono.fromCallable(() -> deviceStatistics.computeSequential(devices))
+                Mono.fromCallable(() -> deviceStatistics.computeSequential(deviceData))
                         .subscribeOn(Schedulers.boundedElastic());
             case "StandardCollectors" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithStandardCollectors(devices))
+                Mono.fromCallable(() -> deviceStatistics.computeWithStandardCollectors(deviceData))
                         .subscribeOn(Schedulers.boundedElastic());
             case "StandardCollectorsParallel" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithStandardCollectorsParallel(devices))
+                Mono.fromCallable(() -> deviceStatistics.computeWithStandardCollectorsParallel(deviceData))
                         .subscribeOn(Schedulers.boundedElastic());
             case "StandardCollectorsParallelBatch" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithStandardCollectorsParallel(devices, batchSize))
+                Mono.fromCallable(() -> deviceStatistics.computeWithStandardCollectorsParallel(deviceData, batchSize))
                         .subscribeOn(Schedulers.boundedElastic());
             case "CustomCollector" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithCustomCollector(devices))
+                Mono.fromCallable(() -> deviceStatistics.computeWithCustomCollector(deviceData))
                         .subscribeOn(Schedulers.boundedElastic());
             case "CustomCollectorParallel" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithCustomCollectorParallel(devices))
+                Mono.fromCallable(() -> deviceStatistics.computeWithCustomCollectorParallel(deviceData))
                         .subscribeOn(Schedulers.boundedElastic());
             case "CustomCollectorParallelBatch" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithCustomCollectorParallel(devices, batchSize))
+                Mono.fromCallable(() -> deviceStatistics.computeWithCustomCollectorParallel(deviceData, batchSize))
                         .subscribeOn(Schedulers.boundedElastic());
 
             // Reactive Methods - conversion logic
             case "Observable" ->
-                Mono.from(
-                        deviceStatistics.computeObservable(devices, batchSize).toFlowable(BackpressureStrategy.BUFFER));
+                Mono.from(deviceStatistics.computeObservable(deviceData, batchSize)
+                        .toFlowable(io.reactivex.rxjava3.core.BackpressureStrategy.BUFFER));
             case "Flowable" ->
-                Mono.from(deviceStatistics.computeFlowable(toFlowable(devices), batchSize));
+                Mono.from(deviceStatistics.computeFlowable(deviceData, batchSize));
             case "FlowableParallel" ->
-                Mono.from(deviceStatistics.computeFlowableParallel(toFlowable(devices), batchSize,
+                Mono.from(deviceStatistics.computeFlowableParallel(deviceData, batchSize,
                         Runtime.getRuntime().availableProcessors()));
             case "ObservableSync" ->
-                Mono.fromCallable(() -> deviceStatistics.computeObservableSync(devices, batchSize))
+                Mono.fromCallable(() -> deviceStatistics.computeObservableSync(deviceData, batchSize))
                         .subscribeOn(Schedulers.boundedElastic());
             case "FlowableSync" ->
-                Mono.fromCallable(() -> deviceStatistics.computeFlowableSync(toFlowable(devices), batchSize))
+                Mono.fromCallable(() -> deviceStatistics.computeFlowableSync(deviceData, batchSize))
                         .subscribeOn(Schedulers.boundedElastic());
             case "FlowableParallelSync" ->
-                Mono.fromCallable(() -> deviceStatistics.computeFlowableParallelSync(toFlowable(devices), batchSize,
+                Mono.fromCallable(() -> deviceStatistics.computeFlowableParallelSync(deviceData, batchSize,
                         Runtime.getRuntime().availableProcessors()))
                         .subscribeOn(Schedulers.boundedElastic());
             case "CustomSubscriber" ->
-                Mono.fromCallable(() -> deviceStatistics.computeWithCustomSubscriber(toFlowable(devices), batchSize))
+                Mono.fromCallable(() -> deviceStatistics.computeWithCustomSubscriber(deviceData, batchSize))
                         .subscribeOn(Schedulers.boundedElastic());
 
             default ->
-                Mono.fromCallable(() -> deviceStatistics.computeSequential(devices))
+                Mono.fromCallable(() -> deviceStatistics.computeSequential(deviceData))
                         .subscribeOn(Schedulers.boundedElastic());
         };
     }
 
-    private Flowable<Device> toFlowable(List<Device> devices) {
-        return Flowable.fromIterable(devices);
+    public void setCalculationMethod(String method, int batchSize) {
+        log.info("Switching analytics calculation method to: {}, batchSize: {}", method, batchSize);
+        this.currentMethod.set(method);
+        this.currentBatchSize.set(batchSize);
+    }
+
+    public Mono<Void> calculateAndPublishStats(List<DeviceData> deviceData) {
+        String method = currentMethod.get();
+        int batchSize = currentBatchSize.get();
+
+        if (deviceData.isEmpty())
+            return Mono.empty();
+
+        // Stateless computation on the incoming batch
+        return computeStats(deviceData, method, batchSize)
+                .flatMap(stats -> {
+                    // Use the ID of the first device as reference or -1 for batch
+                    long distinctId = deviceData.getFirst().id();
+
+                    // Construct DTO
+                    com.iot.shared.domain.AnalyticsData data = new com.iot.shared.domain.AnalyticsData(
+                            distinctId,
+                            java.time.Instant.now(),
+                            java.util.Map.of(
+                                    "averageBattery", stats.getAvgBattery() != null ? stats.getAvgBattery() : 0.0,
+                                    "averageSignal", stats.getAvgSignal() != null ? stats.getAvgSignal() : 0.0,
+                                    "onlineDevices",
+                                    stats.getOnlineCount() != null ? (double) stats.getOnlineCount() : 0.0,
+                                    "totalDevices", stats.getCount() != null ? (double) stats.getCount() : 0.0));
+
+                    return Mono.fromRunnable(() -> analyticsPublisher.publish(data));
+                })
+                .doOnError(error -> log.error("Error calculating stats with method {}", method, error))
+                .then();
     }
 }

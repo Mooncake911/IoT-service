@@ -1,7 +1,7 @@
 package com.iot.ruleengine.service;
 
 import com.iot.ruleengine.engine.RuleEngine;
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,13 +24,12 @@ public class AmqpConsumerTest {
     @DisplayName("Should forward consumed device to Rule Engine")
     void consumeDevice_shouldCallRuleEngine() {
         // Arrange
-        Device device = new Device();
-        device.setId(123L);
+        DeviceData deviceData = new DeviceData(123L, "Test Device", null, null, null, null, null);
 
         // Act
-        consumer.consumeDevice(device);
+        consumer.consumeDevice(deviceData);
 
         // Assert
-        verify(ruleEngine).processDevice(device);
+        verify(ruleEngine).processDevice(deviceData);
     }
 }

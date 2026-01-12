@@ -1,6 +1,6 @@
 package com.iot.analytics.statistics.computation;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import com.iot.shared.domain.components.Type;
 import com.iot.shared.domain.components.Status;
 import com.iot.analytics.statistics.model.DeviceStats;
@@ -21,112 +21,112 @@ public final class DeviceStatsStandardCollectors {
         this.statsConfig = statsConfig;
     }
 
-    public DeviceStats compute(List<Device> devices) {
-        return computeInternal(devices, false);
+    public DeviceStats compute(List<DeviceData> deviceData) {
+        return computeInternal(deviceData, false);
     }
 
-    public DeviceStats computeParallel(List<Device> devices) {
-        return computeInternal(devices, true);
+    public DeviceStats computeParallel(List<DeviceData> deviceData) {
+        return computeInternal(deviceData, true);
     }
 
     // Общий внутренний метод для обоих режимов
-    private DeviceStats computeInternal(List<Device> devices, boolean parallel) {
-        if (devices == null || devices.isEmpty()) {
+    private DeviceStats computeInternal(List<DeviceData> deviceData, boolean parallel) {
+        if (deviceData == null || deviceData.isEmpty()) {
             return DeviceStats.empty();
         }
 
         DeviceStats.Builder builder = DeviceStats.builder();
 
         if (statsConfig.isStatEnabled(StatType.COUNT)) {
-            builder.withCount(countTotalDevices(devices, parallel));
+            builder.withCount(countTotalDevices(deviceData, parallel));
         }
 
         if (statsConfig.isStatEnabled(StatType.ONLINE_COUNT)) {
-            builder.withOnlineCount(countOnlineDevices(devices, parallel));
+            builder.withOnlineCount(countOnlineDevices(deviceData, parallel));
         }
 
         if (statsConfig.isStatEnabled(StatType.BATTERY)) {
-            BatteryStats batteryStats = computeBatteryStats(devices, parallel);
+            BatteryStats batteryStats = computeBatteryStats(deviceData, parallel);
             builder.withBattery(batteryStats.avg, batteryStats.min, batteryStats.max);
         }
 
         if (statsConfig.isStatEnabled(StatType.SIGNAL)) {
-            SignalStats signalStats = computeSignalStats(devices, parallel);
+            SignalStats signalStats = computeSignalStats(deviceData, parallel);
             builder.withSignal(signalStats.avg, signalStats.min, signalStats.max);
         }
 
         if (statsConfig.isStatEnabled(StatType.HEARTBEAT)) {
             final LocalDateTime now = LocalDateTime.now();
-            HeartbeatStats heartbeatStats = computeHeartbeatStats(devices, now, parallel);
+            HeartbeatStats heartbeatStats = computeHeartbeatStats(deviceData, now, parallel);
             builder.withHeartbeat(heartbeatStats.avg, heartbeatStats.min, heartbeatStats.max);
         }
 
         if (statsConfig.isStatEnabled(StatType.COVERAGE_VOLUME)) {
-            LocationStats locationStats = computeLocationStats(devices, parallel);
+            LocationStats locationStats = computeLocationStats(deviceData, parallel);
             double coverageVolume = DeviceUtils.calculateCoverageVolume(
                     locationStats.minX, locationStats.maxX,
                     locationStats.minY, locationStats.maxY,
-                    locationStats.minZ, locationStats.maxZ, devices.size());
+                    locationStats.minZ, locationStats.maxZ, deviceData.size());
             builder.withCoverage(coverageVolume);
         }
 
         if (statsConfig.isStatEnabled(StatType.DEVICES_BY_TYPE)) {
-            builder.withDevicesByType(computeDevicesByType(devices, parallel));
+            builder.withDevicesByType(computeDevicesByType(deviceData, parallel));
         }
 
         if (statsConfig.isStatEnabled(StatType.DEVICES_BY_MANUFACTURER)) {
-            builder.withDevicesByManufacturer(computeDevicesByManufacturer(devices, parallel));
+            builder.withDevicesByManufacturer(computeDevicesByManufacturer(deviceData, parallel));
         }
 
         if (statsConfig.isStatEnabled(StatType.DEVICES_BY_CAPABILITIES)) {
-            builder.withDevicesByCapabilities(computeDevicesByCapabilities(devices, parallel));
+            builder.withDevicesByCapabilities(computeDevicesByCapabilities(deviceData, parallel));
         }
 
         return builder.build();
     }
 
     // Перегруженные вспомогательные методы с поддержкой параллелизма
-    private static long countTotalDevices(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static long countTotalDevices(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         return stream
                 .filter(device -> true) // Сбиваем флаг SIZED
                 .count();
     }
 
-    private static long countOnlineDevices(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static long countOnlineDevices(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         return stream
                 .filter(device -> {
-                    Status status = device.getStatus();
+                    Status status = device.status();
                     return status != null && status.isOnline();
                 })
                 .count();
     }
 
-    private static BatteryStats computeBatteryStats(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static BatteryStats computeBatteryStats(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         DoubleSummaryStatistics stats = stream
-                .map(Device::getStatus)
+                .map(DeviceData::status)
                 .filter(Objects::nonNull)
                 .mapToDouble(Status::batteryLevel)
                 .summaryStatistics();
         return new BatteryStats(stats.getAverage(), stats.getMin(), stats.getMax());
     }
 
-    private static SignalStats computeSignalStats(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static SignalStats computeSignalStats(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         DoubleSummaryStatistics stats = stream
-                .map(Device::getStatus)
+                .map(DeviceData::status)
                 .filter(Objects::nonNull)
                 .mapToDouble(Status::signalStrength)
                 .summaryStatistics();
         return new SignalStats(stats.getAverage(), stats.getMin(), stats.getMax());
     }
 
-    private static HeartbeatStats computeHeartbeatStats(List<Device> devices, LocalDateTime now, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static HeartbeatStats computeHeartbeatStats(List<DeviceData> deviceData, LocalDateTime now, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         LongSummaryStatistics stats = stream
-                .map(Device::getStatus)
+                .map(DeviceData::status)
                 .filter(Objects::nonNull)
                 .filter(status -> status.lastHeartbeat() != null)
                 .mapToLong(status -> Duration.between(status.lastHeartbeat(), now).toMinutes())
@@ -139,12 +139,12 @@ public final class DeviceStatsStandardCollectors {
         return new HeartbeatStats(average, min, max);
     }
 
-    private static LocationStats computeLocationStats(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static LocationStats computeLocationStats(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
 
         // Используем reduce для одного прохода по коллекции
         return stream
-                .map(Device::getLocation)
+                .map(DeviceData::location)
                 .filter(Objects::nonNull)
                 .reduce(
                         new LocationStats(Integer.MAX_VALUE, Integer.MIN_VALUE,
@@ -160,26 +160,26 @@ public final class DeviceStatsStandardCollectors {
                                 Math.min(acc1.minZ, acc2.minZ), Math.max(acc1.maxZ, acc2.maxZ)));
     }
 
-    private static Map<Type, Long> computeDevicesByType(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static Map<Type, Long> computeDevicesByType(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         return parallel
-                ? stream.collect(Collectors.groupingByConcurrent(Device::getType, Collectors.counting()))
-                : stream.collect(Collectors.groupingBy(Device::getType, Collectors.counting()));
+                ? stream.collect(Collectors.groupingByConcurrent(DeviceData::type, Collectors.counting()))
+                : stream.collect(Collectors.groupingBy(DeviceData::type, Collectors.counting()));
     }
 
-    private static Map<String, Long> computeDevicesByManufacturer(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static Map<String, Long> computeDevicesByManufacturer(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         return parallel
-                ? stream.collect(Collectors.groupingByConcurrent(Device::getManufacturer, Collectors.counting()))
-                : stream.collect(Collectors.groupingBy(Device::getManufacturer, Collectors.counting()));
+                ? stream.collect(Collectors.groupingByConcurrent(DeviceData::manufacturer, Collectors.counting()))
+                : stream.collect(Collectors.groupingBy(DeviceData::manufacturer, Collectors.counting()));
     }
 
-    private static Map<String, Long> computeDevicesByCapabilities(List<Device> devices, boolean parallel) {
-        var stream = parallel ? devices.parallelStream() : devices.stream();
+    private static Map<String, Long> computeDevicesByCapabilities(List<DeviceData> deviceData, boolean parallel) {
+        var stream = parallel ? deviceData.parallelStream() : deviceData.stream();
         return parallel
-                ? stream.flatMap(device -> device.getCapabilities().stream())
+                ? stream.flatMap(device -> device.capabilities().stream())
                         .collect(Collectors.groupingByConcurrent(capability -> capability, Collectors.counting()))
-                : stream.flatMap(device -> device.getCapabilities().stream())
+                : stream.flatMap(device -> device.capabilities().stream())
                         .collect(Collectors.groupingBy(capability -> capability, Collectors.counting()));
     }
 

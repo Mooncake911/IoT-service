@@ -1,6 +1,6 @@
 package com.iot.analytics.statistics.computation;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import com.iot.analytics.statistics.model.DeviceStats;
 import com.iot.analytics.statistics.model.StatsConfig;
 
@@ -10,7 +10,7 @@ import org.reactivestreams.Subscription;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class DeviceStatsSubscriber implements FlowableSubscriber<Device> {
+public class DeviceStatsSubscriber implements FlowableSubscriber<DeviceData> {
     private final DeviceStatsAccumulator accumulator;
     private Subscription subscription;
     private final int batchSize;
@@ -33,9 +33,9 @@ public class DeviceStatsSubscriber implements FlowableSubscriber<Device> {
     }
 
     @Override
-    public void onNext(Device device) {
-        if (device != null) {
-            accumulator.accept(device);
+    public void onNext(DeviceData deviceData) {
+        if (deviceData != null) {
+            accumulator.accept(deviceData);
             receivedCount++;
 
             if (receivedCount >= requestedCount) {

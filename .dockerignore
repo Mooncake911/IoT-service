@@ -1,6 +1,5 @@
 # Build results
 **/target/
-*.class
 *.jar
 *.war
 *.ear

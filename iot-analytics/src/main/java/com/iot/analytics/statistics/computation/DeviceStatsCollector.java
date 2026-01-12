@@ -1,6 +1,6 @@
 package com.iot.analytics.statistics.computation;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import com.iot.analytics.statistics.model.DeviceStats;
 import com.iot.analytics.statistics.model.StatsConfig;
 
@@ -13,20 +13,20 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 
-public class DeviceStatsCollector implements Collector<Device, DeviceStatsAccumulator, DeviceStats> {
+public class DeviceStatsCollector implements Collector<DeviceData, DeviceStatsAccumulator, DeviceStats> {
     private final StatsConfig statsConfig;
 
     public DeviceStatsCollector(StatsConfig statsConfig) {
         this.statsConfig = statsConfig;
     }
 
-    public DeviceStats compute(List<Device> devices) {
-        return devices.stream()
+    public DeviceStats compute(List<DeviceData> deviceData) {
+        return deviceData.stream()
                 .collect(this);
     }
 
-    public DeviceStats computeParallel(List<Device> devices) {
-        return devices.parallelStream()
+    public DeviceStats computeParallel(List<DeviceData> deviceData) {
+        return deviceData.parallelStream()
                 .collect(this);
     }
 
@@ -36,7 +36,7 @@ public class DeviceStatsCollector implements Collector<Device, DeviceStatsAccumu
     }
 
     @Override
-    public BiConsumer<DeviceStatsAccumulator, Device> accumulator() {
+    public BiConsumer<DeviceStatsAccumulator, DeviceData> accumulator() {
         return DeviceStatsAccumulator::accept;
     }
 

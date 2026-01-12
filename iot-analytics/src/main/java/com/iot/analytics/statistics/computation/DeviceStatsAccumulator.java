@@ -1,6 +1,6 @@
 package com.iot.analytics.statistics.computation;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import com.iot.shared.domain.components.Location;
 import com.iot.shared.domain.components.Status;
 import com.iot.shared.domain.components.Type;
@@ -39,8 +39,8 @@ public class DeviceStatsAccumulator {
         this.statsConfig = statsConfig;
     }
 
-    public void accept(Device device) {
-        if (device == null)
+    public void accept(DeviceData deviceData) {
+        if (deviceData == null)
             return;
 
         count++;
@@ -49,23 +49,23 @@ public class DeviceStatsAccumulator {
                 statsConfig.isStatEnabled(StatType.BATTERY) ||
                 statsConfig.isStatEnabled(StatType.SIGNAL) ||
                 statsConfig.isStatEnabled(StatType.HEARTBEAT)) {
-            acceptStatus(device.getStatus());
+            acceptStatus(deviceData.status());
         }
 
         if (statsConfig.isStatEnabled(StatType.COVERAGE_VOLUME)) {
-            acceptLocation(device.getLocation());
+            acceptLocation(deviceData.location());
         }
 
         if (statsConfig.isStatEnabled(StatType.DEVICES_BY_TYPE)) {
-            acceptType(device.getType());
+            acceptType(deviceData.type());
         }
 
         if (statsConfig.isStatEnabled(StatType.DEVICES_BY_MANUFACTURER)) {
-            acceptManufacturer(device.getManufacturer());
+            acceptManufacturer(deviceData.manufacturer());
         }
 
         if (statsConfig.isStatEnabled(StatType.DEVICES_BY_CAPABILITIES)) {
-            acceptCapabilities(device.getCapabilities());
+            acceptCapabilities(deviceData.capabilities());
         }
     }
 

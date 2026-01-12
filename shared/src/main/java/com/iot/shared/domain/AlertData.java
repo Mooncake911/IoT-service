@@ -5,12 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDateTime;
 
-/**
- * Alert event triggered by Rule Engine when a rule condition is met.
- * Published to RabbitMQ alerts.exchange and consumed by IoT Controller for
- * persistence.
- */
-public record AlertTriggered(
+public record AlertData(
         @JsonProperty("alertId") String alertId,
         @JsonProperty("deviceId") long deviceId,
         @JsonProperty("ruleId") String ruleId,

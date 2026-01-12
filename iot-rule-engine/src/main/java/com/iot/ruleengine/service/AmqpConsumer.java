@@ -1,47 +1,30 @@
 package com.iot.ruleengine.service;
 
-import com.iot.ruleengine.config.RabbitConfig;
 import com.iot.ruleengine.engine.RuleEngine;
-import com.iot.shared.domain.Device;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.iot.shared.domain.DeviceData;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Service;
 
-/**
- * Consumes Device messages from RabbitMQ and forwards them to RuleEngine for
- * processing.
- * Named AmqpConsumer to match the naming convention in iot-analytics service.
- */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class AmqpConsumer {
-
-    private static final Logger log = LoggerFactory.getLogger(AmqpConsumer.class);
 
     private final RuleEngine ruleEngine;
 
-    public AmqpConsumer(RuleEngine ruleEngine) {
-        this.ruleEngine = ruleEngine;
-    }
-
-    /**
-     * Receives Device messages from the iot.rule-engine.queue.
-     * Messages are published by IoT Controller to iot.data.exchange
-     * (FanoutExchange).
-     *
-     * @param device The device data from IoT Controller
-     */
-    @RabbitListener(queues = RabbitConfig.RULE_ENGINE_QUEUE_NAME)
-    public void consumeDevice(Device device) {
-        log.debug("Received device message: id={}, name={}", device.getId(), device.getName());
+    @RabbitListener(queues = "${app.rabbitmq.queue.rule-engine}")
+    public void consumeDevice(DeviceData deviceData) {
+        log.debug("Received device message via AMQP: id={}, name={}", deviceData.id(), deviceData.name());
 
         try {
-            var alerts = ruleEngine.processDevice(device);
+            var alerts = ruleEngine.processDevice(deviceData);
             if (!alerts.isEmpty()) {
-                log.info("Device {} triggered {} alert(s)", device.getId(), alerts.size());
+                log.info("Device {} triggered {} alert(s)", deviceData.id(), alerts.size());
             }
         } catch (Exception e) {
-            log.error("Error processing device {}: {}", device.getId(), e.getMessage(), e);
+            log.error("Error processing rules for device {}: {}", deviceData.id(), e.getMessage(), e);
         }
     }
 }

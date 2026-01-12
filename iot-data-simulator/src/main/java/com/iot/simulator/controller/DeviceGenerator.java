@@ -1,6 +1,6 @@
 package com.iot.simulator.controller;
 
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import com.iot.shared.domain.components.Location;
 import com.iot.shared.domain.components.Status;
 import com.iot.shared.domain.components.Type;
@@ -156,15 +156,15 @@ public class DeviceGenerator {
         }
     }
 
-    public List<Device> randomDevices(int count) {
-        List<Device> devices = new ArrayList<>();
+    public List<DeviceData> randomDevices(int count) {
+        List<DeviceData> deviceData = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            devices.add(randomDevice());
+            deviceData.add(randomDevice());
         }
-        return devices;
+        return deviceData;
     }
 
-    public Device randomDevice() {
+    public DeviceData randomDevice() {
         long id = idCounter++;
         Type type = Type.values()[RANDOM.nextInt(Type.values().length)];
         String name = generateRealisticName(type, id);
@@ -174,7 +174,7 @@ public class DeviceGenerator {
         Location location = generateRealisticLocation();
         Status status = generateRealisticStatus(type);
 
-        return new Device(id, name, manufacturer, type, capabilities, location, status);
+        return new DeviceData(id, name, manufacturer, type, capabilities, location, status);
     }
 
     private String generateRealisticName(Type type, long id) {
@@ -362,9 +362,9 @@ public class DeviceGenerator {
         return (int) Math.round(Math.max(0, Math.min(100, signalRaw)));
     }
 
-    public void updateDevice(Device device) {
+    public DeviceData updateDevice(DeviceData deviceData) {
         // Update Status
-        Status currentStatus = device.getStatus();
+        Status currentStatus = deviceData.status();
         // Simulate small changes
         boolean isOnline = currentStatus.isOnline();
 
@@ -387,19 +387,21 @@ public class DeviceGenerator {
         }
 
         // Update heartbeat
-        LocalDateTime lastHeartbeat = isOnline ? LocalDateTime.now() : currentStatus.lastHeartbeat();
+        java.time.LocalDateTime lastHeartbeat = isOnline ? java.time.LocalDateTime.now()
+                : currentStatus.lastHeartbeat();
 
         Status newStatus = new Status(isOnline, batteryLevel, signalStrength, lastHeartbeat);
-        device.setStatus(newStatus);
+        DeviceData updated = deviceData.withStatus(newStatus);
 
         // Update Location (Random Walk) - 10% chance to move
         if (RANDOM.nextDouble() < 0.1) {
-            Location loc = device.getLocation();
+            Location loc = updated.location();
             int dx = RANDOM.nextInt(3) - 1; // -1, 0, 1
             int dy = RANDOM.nextInt(3) - 1;
             int newX = Math.max(0, Math.min(50, loc.x() + dx));
             int newY = Math.max(0, Math.min(50, loc.y() + dy));
-            device.setLocation(new Location(newX, newY, loc.z()));
+            updated = updated.withLocation(new Location(newX, newY, loc.z()));
         }
+        return updated;
     }
 }

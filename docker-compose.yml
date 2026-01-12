@@ -1,122 +1,147 @@
+# --- ШАБЛОНЫ (ЯКОРЯ) ---
+
+x-base-service: &base-service
+  networks:
+    - iot-network
+
+x-java-env: &java-env
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES}
+  JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS}
+  JDK_JAVA_OPTIONS: ${JDK_JAVA_OPTIONS}
+
+x-rabbitmq-env: &rabbitmq-env
+  SPRING_RABBITMQ_HOST: ${RABBIT_HOST}
+  SPRING_RABBITMQ_USERNAME: ${RABBIT_USER}
+  SPRING_RABBITMQ_PASSWORD: ${RABBIT_PASS}
+
+# Шаблон сборки: меняется только путь к Dockerfile
+x-build-template: &build-template
+  context: .
+  dockerfile: Dockerfile
+
+# --- СЕРВИСЫ ---
+
 services:
   iot-analytics:
+    <<: *base-service
     build:
-      context: .
-      dockerfile: iot-analytics/Dockerfile
+      <<: *build-template
+      args:
+        SERVICE_NAME: iot-analytics
     image: iot-analytics:latest
     container_name: iot-analytics
     ports:
-      - "8081:8081"
+      - "${ANALYTICS_PORT}:${ANALYTICS_PORT}"
     environment:
-      - SERVER_PORT=8081
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_PROFILES_ACTIVE=elk,docker
-      - JAVA_TOOL_OPTIONS=-Xshare:off
-      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+      <<: [ *java-env, *rabbitmq-env ]
+      SERVER_PORT: ${ANALYTICS_PORT}
     depends_on:
       rabbitmq:
         condition: service_healthy
-    networks:
-      - iot-network
 
   iot-controller:
+    <<: *base-service
     build:
-      context: .
-      dockerfile: iot-controller/Dockerfile
+      <<: *build-template
+      args:
+        SERVICE_NAME: iot-controller
     image: iot-controller:latest
     container_name: iot-controller
     ports:
-      - "8082:8082"
+      - "${CONTROLLER_PORT}:${CONTROLLER_PORT}"
     environment:
-      - SERVER_PORT=8082
-      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/iot_db
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_PROFILES_ACTIVE=elk,docker
-      - JAVA_TOOL_OPTIONS=-Xshare:off
-      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+      <<: [ *java-env, *rabbitmq-env ]
+      SERVER_PORT: ${CONTROLLER_PORT}
+      SPRING_DATA_MONGODB_URI: ${MONGO_URI}
     depends_on:
       mongodb:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    networks:
-      - iot-network
-
-  iot-data-simulator:
-    build:
-      context: .
-      dockerfile: iot-data-simulator/Dockerfile
-    image: iot-data-simulator:latest
-    container_name: iot-data-simulator
-    ports:
-      - "8080:8080"
-    environment:
-      - CONTROLLER_URL=http://iot-controller:8082/api/ingest
-      - SPRING_PROFILES_ACTIVE=elk,docker
-      - JAVA_TOOL_OPTIONS=-Xshare:off
-      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
-    depends_on:
-      - iot-controller
-    networks:
-      - iot-network
 
   iot-rule-engine:
+    <<: *base-service
     build:
-      context: .
-      dockerfile: iot-rule-engine/Dockerfile
+      <<: *build-template
+      args:
+        SERVICE_NAME: iot-rule-engine
     image: iot-rule-engine:latest
     container_name: iot-rule-engine
     ports:
-      - "8083:8083"
+      - "${RULE_ENGINE_PORT}:${RULE_ENGINE_PORT}"
     environment:
-      - SERVER_PORT=8083
-      - SPRING_RABBITMQ_HOST=rabbitmq
-      - SPRING_PROFILES_ACTIVE=elk,docker
-      - JAVA_TOOL_OPTIONS=-Xshare:off
-      - JDK_JAVA_OPTIONS=--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED
+      <<: [ *java-env, *rabbitmq-env ]
+      SERVER_PORT: ${RULE_ENGINE_PORT}
     depends_on:
       rabbitmq:
         condition: service_healthy
-    networks:
-      - iot-network
+
+  iot-data-simulator:
+    <<: *base-service
+    build:
+      <<: *build-template
+      args:
+        SERVICE_NAME: iot-data-simulator
+    image: iot-data-simulator:latest
+    container_name: iot-data-simulator
+    ports:
+      - "${SIMULATOR_PORT}:${SIMULATOR_PORT}"
+    environment:
+      <<: *java-env
+      CONTROLLER_URL: http://iot-controller:${CONTROLLER_PORT}/api/ingest
+    depends_on:
+      - iot-controller
+
+  # --- ИНФРАСТРУКТУРА ---
 
   mongodb:
-    image: mongo:6.0
+    <<: *base-service
+    image: mongo:${MONGO_VERSION}
     container_name: mongodb
     ports:
-      - "27017:27017"
+      - "${MONGO_PORT}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+      MONGO_INITDB_DATABASE: ${MONGO_DB}
     volumes:
       - mongo_data:/data/db
-    networks:
-      - iot-network
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   rabbitmq:
-    image: rabbitmq:4.0-management
+    <<: *base-service
+    image: rabbitmq:${RABBIT_VERSION}
     container_name: rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBIT_MQ_PORT}:5672"
+      - "${RABBIT_MGMT_PORT}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
     healthcheck:
       test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - iot-network
+
+  # --- ELK STACK ---
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    <<: *base-service
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
     container_name: elasticsearch
     environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS}
     ports:
-      - "9200:9200"
+      - "${ES_PORT}:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
-    networks:
-      - iot-network
     healthcheck:
       test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q status" ]
       interval: 10s
@@ -124,30 +149,28 @@ services:
       retries: 10
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:8.11.0
+    <<: *base-service
+    image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION}
     container_name: logstash
     ports:
-      - "5044:5044"
+      - "${LOGSTASH_PORT}:5044"
     volumes:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
     environment:
-      - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
+      LS_JAVA_OPTS: ${LS_JAVA_OPTS}
     depends_on:
       elasticsearch:
         condition: service_healthy
-    networks:
-      - iot-network
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
+    <<: *base-service
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
     container_name: kibana
     ports:
-      - "5601:5601"
+      - "${KIBANA_PORT}:5601"
     environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - XPACK_SECURITY_ENABLED=false
-      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=something_at_least_32_characters_long_kibana_key
-      - XPACK_REPORTING_ENCRYPTIONKEY=something_at_least_32_characters_long_reporting_key
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      XPACK_SECURITY_ENABLED: "false"
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -156,26 +179,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-    networks:
-      - iot-network
 
   kibana-setup:
-    image: curlimages/curl:latest
+    <<: *base-service
+    image: curlimages/curl:${CURL_VERSION}
     container_name: kibana-setup
     depends_on:
       kibana:
         condition: service_healthy
-    networks:
-      - iot-network
+    restart: on-failure
     command: >
-      sh -c "echo 'Waiting for Kibana to be fully ready...'; sleep 20; curl -X POST 'http://kibana:5601/api/data_views/data_view' \
+      sh -c "sleep 15;  curl -X POST 'http://kibana:5601/api/data_views/data_view' \
         -H 'Content-Type: application/json' \
         -H 'kbn-xsrf: true' \
-        -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}';
-      echo 'Kibana Data View created successfully.'"
+        -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}'"
 
   filebeat:
-    image: docker.elastic.co/beats/filebeat:8.11.0
+    <<: *base-service
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
     container_name: filebeat
     user: root
     volumes:
@@ -183,40 +204,39 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
-      - logstash
+      logstash:
+        condition: service_started
     command: [ "filebeat", "-e", "--strict.perms=false" ]
-    networks:
-      - iot-network
+
+  # --- MONITORING ---
 
   prometheus:
-    image: prom/prometheus:v2.48.0
+    <<: *base-service
+    image: prom/prometheus:${PROMETHEUS_VERSION}
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT}:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-    networks:
-      - iot-network
 
   grafana:
-    image: grafana/grafana:10.2.0
+    <<: *base-service
+    image: grafana/grafana:${GRAFANA_VERSION}
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT}:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
-    networks:
-      - iot-network
 
 volumes:
   mongo_data:

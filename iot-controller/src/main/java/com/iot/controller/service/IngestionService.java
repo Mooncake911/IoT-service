@@ -1,76 +1,89 @@
 package com.iot.controller.service;
 
-import com.iot.controller.config.RabbitConfig;
 import com.iot.controller.domain.DeviceEntity;
 import com.iot.controller.repository.DeviceDataRepository;
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 @Service
+@Slf4j
 public class IngestionService {
 
     private final DeviceDataRepository repository;
     private final RabbitTemplate rabbitTemplate;
+
+    @Value("${app.rabbitmq.exchange.data}")
+    private String dataExchangeName;
 
     public IngestionService(DeviceDataRepository repository, RabbitTemplate rabbitTemplate) {
         this.repository = repository;
         this.rabbitTemplate = rabbitTemplate;
     }
 
-    public Mono<DeviceEntity> ingestData(Device device) {
-        // 0. Validate data
-        try {
-            validateDevice(device);
-        } catch (IllegalArgumentException e) {
-            return Mono.error(e);
-        }
-
-        // Map DTO -> Entity
-        DeviceEntity entity = new DeviceEntity(
-                null, // Mongo ID auto-generated
-                device.getId(),
-                device.getName(),
-                device.getManufacturer(),
-                device.getType(),
-                device.getCapabilities(),
-                device.getLocation(),
-                device.getStatus(),
-                Instant.now());
-
-        // 1. Save to MongoDB (Reactive)
-        return repository.save(entity)
-                .doOnSuccess(savedEntity -> {
-                    // 2. Publish original DTO to RabbitMQ (Analytics expects 'Device')
-                    // We run this on a separate scheduler
-                    Mono.fromRunnable(() -> rabbitTemplate.convertAndSend(RabbitConfig.DATA_EXCHANGE_NAME, "", device))
-                            .subscribeOn(Schedulers.boundedElastic()).subscribe();
-                });
+    public Mono<DeviceEntity> ingestData(DeviceData deviceData) {
+        return Mono.fromCallable(() -> {
+            validateDevice(deviceData);
+            return toEntity(deviceData);
+        }).flatMap(entity -> repository.save(entity)
+                .flatMap(savedEntity -> Mono
+                        .fromRunnable(() -> rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .thenReturn(savedEntity))
+                .doOnSuccess(saved -> log.debug("Data ingested for device {}", deviceData.id()))
+                .doOnError(error -> log.error("Failed to ingest data for device {}: {}", deviceData.id(),
+                        error.getMessage())));
     }
 
-    private void validateDevice(Device device) {
-        validateNotNull(device, "Device");
-        validateNonNegative(device.getId(), "Device ID");
-        validateStringNotEmpty(device.getName(), "Device Name");
+    public Mono<Void> ingestBatch(List<DeviceData> deviceData) {
+        return Mono.fromCallable(() -> {
+            deviceData.forEach(this::validateDevice);
+            return deviceData.stream().map(this::toEntity).toList();
+        }).flatMap(entities -> repository.saveAll(entities).collectList()
+                .flatMap(savedEntities -> Mono
+                        .fromRunnable(() -> rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData))
+                        .subscribeOn(Schedulers.boundedElastic()))
+                .doOnSuccess(_ -> log.info("Batch ingested: size={}", deviceData.size()))
+                .doOnError(error -> log.error("Failed to ingest batch: {}", error.getMessage())))
+                .then();
+    }
 
-        if (device.getStatus() != null) {
-            validateBatteryRange(device.getStatus().batteryLevel(), "Battery Level");
-            validateSignalRange(device.getStatus().signalStrength(), "Signal Strength");
+    private DeviceEntity toEntity(DeviceData deviceData) {
+        return new DeviceEntity(
+                null,
+                deviceData.id(),
+                deviceData.name(),
+                deviceData.manufacturer(),
+                deviceData.type(),
+                deviceData.capabilities(),
+                deviceData.location(),
+                deviceData.status(),
+                Instant.now());
+    }
+
+    private void validateDevice(DeviceData deviceData) {
+        validateNotNull(deviceData, "Device");
+        validateNonNegative(deviceData.id(), "Device ID");
+        validateStringNotEmpty(deviceData.name(), "Device Name");
+
+        if (deviceData.status() != null) {
+            validateBatteryRange(deviceData.status().batteryLevel(), "Battery Level");
+            validateSignalRange(deviceData.status().signalStrength(), "Signal Strength");
         }
 
-        validateLocation(device.getLocation());
-        validateCapabilities(device.getCapabilities());
+        validateLocation(deviceData.location());
+        validateCapabilities(deviceData.capabilities());
     }
 
     private void validateLocation(com.iot.shared.domain.components.Location location) {
         if (location != null) {
-            // Assuming 2D/3D workspace bounds, for example -5000 to 5000
             if (Math.abs(location.x()) > 10000 || Math.abs(location.y()) > 10000) {
                 throw new IllegalArgumentException("Location coordinates out of range: " + location);
             }
@@ -105,25 +118,6 @@ public class IngestionService {
     private void validateSignalRange(double value, String fieldName) {
         if (value < 0 || value > 100) {
             throw new IllegalArgumentException(fieldName + " must be between 0 and 100: " + value);
-        }
-    }
-
-    private void validateMinMaxConsistency(double min, double max, String dataType) {
-        if (min > max) {
-            throw new IllegalArgumentException(
-                    dataType + " min value (" + min + ") cannot be greater than max value (" + max + ")");
-        }
-    }
-
-    private void validateGroupingMap(Map<?, Long> map, String fieldName) {
-        if (map != null) {
-            for (Map.Entry<?, Long> entry : map.entrySet()) {
-                if (entry.getValue() <= 0) {
-                    throw new IllegalArgumentException(
-                            fieldName + " contains non-positive count for key " + entry.getKey() + ": "
-                                    + entry.getValue());
-                }
-            }
         }
     }
 

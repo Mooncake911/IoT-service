@@ -7,10 +7,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * Contains all hardcoded rules for the Rule Engine.
- * Rules are defined for all devices (no device-specific filtering).
- */
 @Component
 public class HardcodedRules {
 
@@ -20,10 +16,6 @@ public class HardcodedRules {
                 this.requiredPackets = requiredPackets;
         }
 
-        /**
-         * Returns all instant rules.
-         * These rules trigger immediately when condition is met on a single packet.
-         */
         public List<Rule> getInstantRules() {
                 return List.of(
                                 // Battery rules
@@ -31,18 +23,18 @@ public class HardcodedRules {
                                                 "LOW_BATTERY",
                                                 "Низкий заряд батареи",
                                                 Severity.WARNING,
-                                                device -> device.getStatus() != null
-                                                                && device.getStatus().batteryLevel() < 20,
-                                                device -> device.getStatus() != null ? device.getStatus().batteryLevel()
+                                                device -> device.status() != null
+                                                                && device.status().batteryLevel() < 20,
+                                                device -> device.status() != null ? device.status().batteryLevel()
                                                                 : null,
                                                 20),
                                 Rule.instant(
                                                 "CRITICAL_BATTERY",
                                                 "Критический заряд батареи",
                                                 Severity.CRITICAL,
-                                                device -> device.getStatus() != null
-                                                                && device.getStatus().batteryLevel() < 5,
-                                                device -> device.getStatus() != null ? device.getStatus().batteryLevel()
+                                                device -> device.status() != null
+                                                                && device.status().batteryLevel() < 5,
+                                                device -> device.status() != null ? device.status().batteryLevel()
                                                                 : null,
                                                 5),
 
@@ -51,20 +43,20 @@ public class HardcodedRules {
                                                 "LOW_SIGNAL",
                                                 "Слабый сигнал",
                                                 Severity.WARNING,
-                                                device -> device.getStatus() != null
-                                                                && device.getStatus().signalStrength() < 30,
-                                                device -> device.getStatus() != null
-                                                                ? device.getStatus().signalStrength()
+                                                device -> device.status() != null
+                                                                && device.status().signalStrength() < 30,
+                                                device -> device.status() != null
+                                                                ? device.status().signalStrength()
                                                                 : null,
                                                 30),
                                 Rule.instant(
                                                 "CRITICAL_SIGNAL",
                                                 "Критически слабый сигнал",
                                                 Severity.CRITICAL,
-                                                device -> device.getStatus() != null
-                                                                && device.getStatus().signalStrength() < 10,
-                                                device -> device.getStatus() != null
-                                                                ? device.getStatus().signalStrength()
+                                                device -> device.status() != null
+                                                                && device.status().signalStrength() < 10,
+                                                device -> device.status() != null
+                                                                ? device.status().signalStrength()
                                                                 : null,
                                                 10));
         }
@@ -80,9 +72,9 @@ public class HardcodedRules {
                                                 "SUSTAINED_LOW_BATTERY",
                                                 "Устойчиво низкий заряд батареи",
                                                 Severity.CRITICAL,
-                                                device -> device.getStatus() != null
-                                                                && device.getStatus().batteryLevel() < 20,
-                                                device -> device.getStatus() != null ? device.getStatus().batteryLevel()
+                                                device -> device.status() != null
+                                                                && device.status().batteryLevel() < 20,
+                                                device -> device.status() != null ? device.status().batteryLevel()
                                                                 : null,
                                                 20,
                                                 requiredPackets),
@@ -92,10 +84,10 @@ public class HardcodedRules {
                                                 "SUSTAINED_LOW_SIGNAL",
                                                 "Устойчиво слабый сигнал",
                                                 Severity.CRITICAL,
-                                                device -> device.getStatus() != null
-                                                                && device.getStatus().signalStrength() < 30,
-                                                device -> device.getStatus() != null
-                                                                ? device.getStatus().signalStrength()
+                                                device -> device.status() != null
+                                                                && device.status().signalStrength() < 30,
+                                                device -> device.status() != null
+                                                                ? device.status().signalStrength()
                                                                 : null,
                                                 30,
                                                 requiredPackets),
@@ -105,8 +97,8 @@ public class HardcodedRules {
                                                 "SUSTAINED_OFFLINE",
                                                 "Долгое отключение устройства",
                                                 Severity.CRITICAL,
-                                                device -> device.getStatus() != null && !device.getStatus().isOnline(),
-                                                device -> device.getStatus() != null ? device.getStatus().isOnline()
+                                                device -> device.status() != null && !device.status().isOnline(),
+                                                device -> device.status() != null ? device.status().isOnline()
                                                                 : null,
                                                 false,
                                                 requiredPackets));

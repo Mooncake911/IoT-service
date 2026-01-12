@@ -1,44 +1,49 @@
 package com.iot.simulator.controller;
 
 import com.iot.simulator.service.SimulationService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Mono;
 
 import java.util.Map;
 import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/api/simulator")
+@Slf4j
+@RequiredArgsConstructor
 public class SimulatorController {
 
     private final SimulationService simulationService;
 
-    public SimulatorController(SimulationService simulationService) {
-        this.simulationService = simulationService;
-    }
-
     @PostMapping("/config")
-    public void configure(@RequestBody Map<String, Object> config) {
-        int deviceCount = (int) config.getOrDefault("deviceCount", 10);
-        int messagesPerSecond = (int) config.getOrDefault("messagesPerSecond", 1);
-        simulationService.configure(deviceCount, messagesPerSecond);
+    public Mono<String> configure(@RequestParam int deviceCount, @RequestParam int messagesPerSecond) {
+        log.info("Updating simulator config: deviceCount={}, messagesPerSecond={}", deviceCount, messagesPerSecond);
+        return simulationService.configure(deviceCount, messagesPerSecond)
+                .then(Mono.just("Config changed to: " + deviceCount + " (msg/s: " + messagesPerSecond + ")"));
     }
 
     @PostMapping("/start")
-    public void start() {
-        simulationService.start();
+    public Mono<Void> start() {
+        log.info("Request to start simulation");
+        return simulationService.start();
     }
 
     @PostMapping("/stop")
-    public void stop() {
-        simulationService.stop();
+    public Mono<Void> stop() {
+        log.info("Request to stop simulation");
+        return simulationService.stop();
     }
 
     @GetMapping("/status")
-    public Map<String, Object> getStatus() {
-        LinkedHashMap<String, Object> status = new LinkedHashMap<>();
-        status.put("running", simulationService.isRunning());
-        status.put("deviceCount", simulationService.getDeviceCount());
-        status.put("messagesPerSecond", simulationService.getMessagesPerSecond());
-        return status;
+    public Mono<Map<String, Object>> getStatus() {
+        return Mono.fromCallable(() -> {
+            LinkedHashMap<String, Object> status = new LinkedHashMap<>();
+            status.put("running", simulationService.isRunning());
+            status.put("deviceCount", simulationService.getDeviceCount());
+            status.put("messagesPerSecond", simulationService.getMessagesPerSecond());
+            return status;
+        });
     }
 }

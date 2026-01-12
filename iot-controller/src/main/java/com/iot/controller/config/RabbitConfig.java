@@ -1,38 +1,66 @@
 package com.iot.controller.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@Slf4j
 public class RabbitConfig {
 
-    // Outgoing: Device data to Analytics and Rule Engine
-    public static final String DATA_EXCHANGE_NAME = "iot.data.exchange";
+    @Value("${app.rabbitmq.exchange.data}")
+    private String dataExchangeName;
 
-    // Incoming: Alerts from Rule Engine
-    public static final String ALERTS_EXCHANGE_NAME = "alerts.exchange";
-    public static final String ALERTS_QUEUE_NAME = "alerts.queue";
+    @Value("${app.rabbitmq.exchange.analytics}")
+    private String analyticsExchangeName;
 
-    // ==================== Outgoing Configuration ====================
+    @Value("${app.rabbitmq.exchange.alerts}")
+    private String alertsExchangeName;
+
+    @Value("${app.rabbitmq.queue.persistence}")
+    private String analyticsQueueName;
+
+    @Value("${app.rabbitmq.queue.alerts}")
+    private String alertsQueueName;
+
+    // ==================== Exchanges ====================
 
     @Bean
-    public Exchange iotDataExchange() {
-        return new FanoutExchange(DATA_EXCHANGE_NAME);
+    public FanoutExchange dataExchange() {
+        return new FanoutExchange(dataExchangeName);
     }
 
-    // ==================== Incoming Configuration (Alerts) ====================
+    @Bean
+    public FanoutExchange analyticsExchange() {
+        return new FanoutExchange(analyticsExchangeName);
+    }
 
     @Bean
     public FanoutExchange alertsExchange() {
-        return new FanoutExchange(ALERTS_EXCHANGE_NAME);
+        return new FanoutExchange(alertsExchangeName);
+    }
+
+    // ==================== Queues ====================
+
+    @Bean
+    public Queue analyticsQueue() {
+        return QueueBuilder.durable(analyticsQueueName).build();
     }
 
     @Bean
     public Queue alertsQueue() {
-        return QueueBuilder.durable(ALERTS_QUEUE_NAME).build();
+        return QueueBuilder.durable(alertsQueueName).build();
+    }
+
+    // ==================== Bindings ====================
+
+    @Bean
+    public Binding analyticsBinding(Queue analyticsQueue, FanoutExchange analyticsExchange) {
+        return BindingBuilder.bind(analyticsQueue).to(analyticsExchange);
     }
 
     @Bean
@@ -40,7 +68,7 @@ public class RabbitConfig {
         return BindingBuilder.bind(alertsQueue).to(alertsExchange);
     }
 
-    // ==================== Message Converter ====================
+    // ==================== Converters ====================
 
     @Bean
     public MessageConverter jsonMessageConverter() {

@@ -1,7 +1,6 @@
 package com.iot.analytics.service;
 
-import com.iot.analytics.repository.ReactiveDeviceRepository;
-import com.iot.shared.domain.Device;
+import com.iot.shared.domain.DeviceData;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,29 +8,29 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 public class AmqpConsumerTest {
 
     @Mock
-    private ReactiveDeviceRepository deviceRepository;
+    private AnalyticsService analyticsService;
 
     @InjectMocks
     private AmqpConsumer amqpConsumer;
 
     @Test
-    @DisplayName("Should save consumed device to repository")
-    public void consumeMessage_shouldSaveDevice() {
+    @DisplayName("Should process batch of devices via AnalyticsService")
+    public void consumeMessage_shouldProcessBatch() {
         // Arrange
-        Device device = new Device();
-        device.setId(999L);
-        device.setName("Rabbit Device");
+        DeviceData deviceData = new DeviceData(999L, "Rabbit Device", "Manufacturer", null, null, null, null);
+        List<DeviceData> batch = List.of(deviceData);
 
         // Act
-        amqpConsumer.consumeMessage(device);
+        amqpConsumer.consumeMessage(batch);
 
         // Assert
-        verify(deviceRepository).save(device);
+        verify(analyticsService).calculateAndPublishStats(batch);
     }
 }

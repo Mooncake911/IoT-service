@@ -9,6 +9,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+
+import reactor.core.publisher.Mono;
+
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,6 +31,7 @@ public class AmqpConsumerTest {
         // Arrange
         DeviceData deviceData = new DeviceData(999L, "Rabbit Device", "Manufacturer", null, null, null, null);
         List<DeviceData> batch = List.of(deviceData);
+        when(analyticsService.calculateAndPublishStats(any())).thenReturn(Mono.empty());
 
         // Act
         amqpConsumer.consumeMessage(batch);

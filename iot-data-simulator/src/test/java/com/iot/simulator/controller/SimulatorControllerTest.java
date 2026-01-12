@@ -3,64 +3,71 @@ package com.iot.simulator.controller;
 import com.iot.simulator.service.SimulationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.http.MediaType;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
 
-import java.util.Map;
+import reactor.core.publisher.Mono;
+import org.junit.jupiter.api.BeforeEach;
 
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.verify;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.Mockito.when;
 
-@WebMvcTest(SimulatorController.class)
+@WebFluxTest(SimulatorController.class)
 @DisplayName("Simulator Controller Tests")
 public class SimulatorControllerTest {
 
     @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
+    private WebTestClient webTestClient;
 
     @MockitoBean
     private SimulationService simulationService;
 
+    @BeforeEach
+    void setUp() {
+        when(simulationService.configure(anyInt(), anyInt())).thenReturn(Mono.empty());
+        when(simulationService.start()).thenReturn(Mono.empty());
+        when(simulationService.stop()).thenReturn(Mono.empty());
+    }
+
     @Test
     @DisplayName("Should configure simulation with provided parameters")
-    public void config_shouldCallConfigure() throws Exception {
+    public void config_shouldCallConfigure() {
         int deviceCount = 20;
         int messagesPerSecond = 5;
 
-        Map<String, Integer> config = Map.of(
-                "deviceCount", deviceCount,
-                "messagesPerSecond", messagesPerSecond);
-
-        mockMvc.perform(post("/api/simulator/config")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(config)))
-                .andExpect(status().isOk());
+        webTestClient.post()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/simulator/config")
+                        .queryParam("deviceCount", deviceCount)
+                        .queryParam("messagesPerSecond", messagesPerSecond)
+                        .build())
+                .exchange()
+                .expectStatus().isOk();
 
         verify(simulationService).configure(deviceCount, messagesPerSecond);
     }
 
     @Test
     @DisplayName("Should start simulation")
-    public void start_shouldCallStart() throws Exception {
-        mockMvc.perform(post("/api/simulator/start"))
-                .andExpect(status().isOk());
+    public void start_shouldCallStart() {
+        webTestClient.post()
+                .uri("/api/simulator/start")
+                .exchange()
+                .expectStatus().isOk();
 
         verify(simulationService).start();
     }
 
     @Test
     @DisplayName("Should stop simulation")
-    public void stop_shouldCallStop() throws Exception {
-        mockMvc.perform(post("/api/simulator/stop"))
-                .andExpect(status().isOk());
+    public void stop_shouldCallStop() {
+        webTestClient.post()
+                .uri("/api/simulator/stop")
+                .exchange()
+                .expectStatus().isOk();
 
         verify(simulationService).stop();
     }

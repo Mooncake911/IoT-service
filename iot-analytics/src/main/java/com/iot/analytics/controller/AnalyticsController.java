@@ -29,4 +29,9 @@ public class AnalyticsController {
         analyticsService.setCalculationMethod(method, batchSize);
         return Mono.just("Calculation method switched to: " + method + " (batch size: " + batchSize + ")");
     }
+
+    @GetMapping("/status")
+    public Mono<java.util.Map<String, Object>> getStatus() {
+        return Mono.just(analyticsService.getConfiguration());
+    }
 }

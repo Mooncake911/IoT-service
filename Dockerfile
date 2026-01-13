@@ -22,6 +22,9 @@ RUN --mount=type=cache,target=/root/.m2 \
 # Copy source code
 COPY . .
 
+# Copy common config to service resources before build
+COPY config/application-common.yml ${SERVICE_NAME}/src/main/resources/application-common.yml
+
 # Build with cache mount
 RUN --mount=type=cache,target=/root/.m2 \
     mvn clean package -pl shared,${SERVICE_NAME} -am -DskipTests
@@ -32,7 +35,7 @@ WORKDIR /app
 ARG SERVICE_NAME
 # Find the built JAR for the specific service
 COPY --from=build /app/${SERVICE_NAME}/target/*.jar app.jar
-RUN java -Djarmode=layertools -jar app.jar extract
+RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # Stage 3: Final runtime image
 FROM eclipse-temurin:24-jre-alpine
@@ -41,9 +44,9 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-COPY --from=layers /app/dependencies/ ./
-COPY --from=layers /app/spring-boot-loader/ ./
-COPY --from=layers /app/snapshot-dependencies/ ./
-COPY --from=layers /app/application/ ./
+COPY --from=layers /app/extracted/dependencies/ ./
+COPY --from=layers /app/extracted/spring-boot-loader/ ./
+COPY --from=layers /app/extracted/snapshot-dependencies/ ./
+COPY --from=layers /app/extracted/application/ ./
 
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]

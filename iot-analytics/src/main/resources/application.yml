@@ -1,0 +1,19 @@
+server:
+  port: ${ANALYTICS_PORT:8081}
+
+spring:
+  main:
+    banner-mode: console
+  config:
+    import:
+      - classpath:application-common.yml
+
+app:
+  rabbitmq:
+    queue:
+      analytics:
+        name: iot-analytics.queue
+        ttl: 5000
+  analytics:
+    default-method: Sequential
+    default-batch-size: 50

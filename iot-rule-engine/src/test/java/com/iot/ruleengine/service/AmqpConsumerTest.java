@@ -27,7 +27,7 @@ public class AmqpConsumerTest {
         DeviceData deviceData = new DeviceData(123L, "Test Device", null, null, null, null, null);
 
         // Act
-        consumer.consumeDevice(deviceData);
+        consumer.consumeDevice(java.util.List.of(deviceData));
 
         // Assert
         verify(ruleEngine).processDevice(deviceData);

@@ -14,17 +14,19 @@ public class AmqpConsumer {
 
     private final RuleEngine ruleEngine;
 
-    @RabbitListener(queues = "${app.rabbitmq.queue.rule-engine}")
-    public void consumeDevice(DeviceData deviceData) {
-        log.debug("Received device message via AMQP: id={}, name={}", deviceData.id(), deviceData.name());
+    @RabbitListener(queues = "${app.rabbitmq.queue.rule-engine.name}")
+    public void consumeDevice(java.util.List<DeviceData> deviceDataList) {
+        log.debug("Received batch of {} devices via AMQP for rule processing", deviceDataList.size());
 
-        try {
-            var alerts = ruleEngine.processDevice(deviceData);
-            if (!alerts.isEmpty()) {
-                log.info("Device {} triggered {} alert(s)", deviceData.id(), alerts.size());
+        for (DeviceData deviceData : deviceDataList) {
+            try {
+                var alerts = ruleEngine.processDevice(deviceData);
+                if (!alerts.isEmpty()) {
+                    log.info("Device {} triggered {} alert(s)", deviceData.id(), alerts.size());
+                }
+            } catch (Exception e) {
+                log.error("Error processing rules for device {}: {}", deviceData.id(), e.getMessage());
             }
-        } catch (Exception e) {
-            log.error("Error processing rules for device {}: {}", deviceData.id(), e.getMessage(), e);
         }
     }
 }

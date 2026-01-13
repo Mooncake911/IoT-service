@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -22,12 +24,14 @@ public class AnalyticsService {
     private final AtomicInteger currentBatchSize;
 
     private final AnalyticsPublisher analyticsPublisher;
+    private final MeterRegistry meterRegistry;
     private final DeviceStatistics deviceStatistics = new DeviceStatistics(StatsConfig.all());
 
-    public AnalyticsService(AnalyticsPublisher analyticsPublisher,
+    public AnalyticsService(AnalyticsPublisher analyticsPublisher, MeterRegistry meterRegistry,
             @Value("${app.analytics.default-method}") String defaultMethod,
             @Value("${app.analytics.default-batch-size}") int defaultBatchSize) {
         this.analyticsPublisher = analyticsPublisher;
+        this.meterRegistry = meterRegistry;
         this.currentMethod = new AtomicReference<>(defaultMethod);
         this.currentBatchSize = new AtomicInteger(defaultBatchSize);
     }
@@ -95,6 +99,12 @@ public class AnalyticsService {
         this.currentBatchSize.set(batchSize);
     }
 
+    public java.util.Map<String, Object> getConfiguration() {
+        return java.util.Map.of(
+                "method", currentMethod.get(),
+                "batchSize", currentBatchSize.get());
+    }
+
     public Mono<Void> calculateAndPublishStats(List<DeviceData> deviceData) {
         String method = currentMethod.get();
         int batchSize = currentBatchSize.get();
@@ -102,8 +112,15 @@ public class AnalyticsService {
         if (deviceData.isEmpty())
             return Mono.empty();
 
+        Timer.Sample sample = Timer.start(meterRegistry);
+
         // Stateless computation on the incoming batch
         return computeStats(deviceData, method, batchSize)
+                .doFinally(signalType -> sample.stop(Timer.builder("analytics.calculation.time")
+                        .description("Time taken to compute device statistics")
+                        .tag("method", method)
+                        .tag("batch_size", String.valueOf(batchSize))
+                        .register(meterRegistry)))
                 .flatMap(stats -> {
                     // Use the ID of the first device as reference or -1 for batch
                     long distinctId = deviceData.getFirst().id();

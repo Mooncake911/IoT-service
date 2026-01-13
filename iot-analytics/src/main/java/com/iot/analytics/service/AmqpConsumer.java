@@ -15,7 +15,7 @@ public class AmqpConsumer {
 
     private final AnalyticsService analyticsService;
 
-    @RabbitListener(queues = "${app.rabbitmq.queue.analytics}")
+    @RabbitListener(queues = "${app.rabbitmq.queue.analytics.name}")
     public void consumeMessage(List<DeviceData> deviceData) {
         log.debug("Received batch of {} devices via AMQP", deviceData.size());
         analyticsService.calculateAndPublishStats(deviceData).subscribe();

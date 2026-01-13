@@ -1,0 +1,14 @@
+server:
+  port: ${SIMULATOR_PORT:8080}
+
+spring:
+  main:
+    banner-mode: console
+
+analytics:
+  url: ${CONTROLLER_URL:http://iot-controller:8082/api/ingest}
+
+app:
+  simulation:
+    device-count: 10
+    messages-per-second: 1

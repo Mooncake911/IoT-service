@@ -38,6 +38,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      logstash:
+        condition: service_healthy
 
   iot-controller:
     <<: *base-service
@@ -58,6 +60,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      logstash:
+        condition: service_healthy
 
   iot-rule-engine:
     <<: *base-service
@@ -75,6 +79,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      logstash:
+        condition: service_healthy
 
   iot-data-simulator:
     <<: *base-service
@@ -90,7 +96,10 @@ services:
       <<: *java-env
       CONTROLLER_URL: http://iot-controller:${CONTROLLER_PORT}/api/ingest
     depends_on:
-      - iot-controller
+      iot-controller:
+        condition: service_started
+      logstash:
+        condition: service_healthy
 
   # --- ИНФРАСТРУКТУРА ---
 
@@ -161,6 +170,11 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9600" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kibana:
     <<: *base-service
@@ -189,10 +203,7 @@ services:
         condition: service_healthy
     restart: on-failure
     command: >
-      sh -c "sleep 15;  curl -X POST 'http://kibana:5601/api/data_views/data_view' \
-        -H 'Content-Type: application/json' \
-        -H 'kbn-xsrf: true' \
-        -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}'"
+      sh -c "sleep 15; curl -X POST 'http://kibana:5601/api/data_views/data_view' -H 'Content-Type: application/json' -H 'kbn-xsrf: true' -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}'"
 
   filebeat:
     <<: *base-service

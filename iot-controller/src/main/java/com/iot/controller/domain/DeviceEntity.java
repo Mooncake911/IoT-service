@@ -9,15 +9,15 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.util.List;
 
-@Document(collection = "device_data")
+@Document(collection = "${app.mongodb.collection.devices}")
 public record DeviceEntity(
-        @Id String id,
-        @NotNull Long deviceId,
-        String name,
-        String manufacturer,
-        Type type,
-        List<String> capabilities,
-        Location location,
-        Status status,
-        Instant timestamp) {
+                @Id String id,
+                @NotNull Long deviceId,
+                String name,
+                String manufacturer,
+                Type type,
+                List<String> capabilities,
+                Location location,
+                Status status,
+                Instant timestamp) {
 }

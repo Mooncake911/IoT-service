@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -38,7 +39,8 @@ public class SimulationService {
     private Disposable simulationSubscription;
     private List<DeviceData> deviceData;
 
-    public SimulationService(WebClient.Builder webClientBuilder,
+    public SimulationService(
+            WebClient.Builder webClientBuilder,
             @Value("${app.simulation.device-count}") int deviceCount,
             @Value("${app.simulation.messages-per-second}") int messagesPerSecond) {
         this.webClient = webClientBuilder.build();
@@ -52,26 +54,26 @@ public class SimulationService {
             this.deviceCount.set(deviceCount);
             this.messagesPerSecond.set(messagesPerSecond);
             this.deviceData = deviceGenerator.randomDevices(deviceCount);
-        }).then();
+        });
     }
 
     public synchronized Mono<Void> start() {
         if (isRunning()) {
             return Mono.empty();
         }
-        if (deviceData == null) {
-            configure(deviceCount.get(), messagesPerSecond.get());
-        }
 
-        log.info("Starting simulation with {} devices at {} msg/s", deviceCount.get(), messagesPerSecond.get());
-        long periodMs = 1000L / messagesPerSecond.get();
+        return (deviceData == null ? configure(deviceCount.get(), messagesPerSecond.get()) : Mono.empty())
+                .then(Mono.fromRunnable(() -> {
+                    log.info("Starting simulation with {} devices at {} msg/s", deviceCount.get(),
+                            messagesPerSecond.get());
+                    long periodMs = 1000L / messagesPerSecond.get();
 
-        simulationSubscription = Flux.interval(Duration.ofMillis(periodMs))
-                .flatMap(tick -> sendData())
-                .subscribe(
-                        null,
-                        error -> log.error("Critical error in simulation: {}", error.getMessage()));
-        return Mono.empty();
+                    simulationSubscription = Flux.interval(Duration.ofMillis(periodMs))
+                            .flatMap(tick -> sendData())
+                            .subscribe(
+                                    null,
+                                    error -> log.error("Critical error in simulation: {}", error.getMessage()));
+                }));
     }
 
     public synchronized Mono<Void> stop() {

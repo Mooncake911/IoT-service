@@ -22,11 +22,14 @@ class AnalyticsServiceTest {
     @Mock
     private AnalyticsPublisher analyticsPublisher;
 
+    @Mock
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     private AnalyticsService analyticsService;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
-        analyticsService = new AnalyticsService(analyticsPublisher, "Sequential", 10);
+        analyticsService = new AnalyticsService(analyticsPublisher, meterRegistry, "Sequential", 10);
     }
 
     @Test

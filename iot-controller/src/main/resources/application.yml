@@ -1,0 +1,25 @@
+server:
+  port: ${CONTROLLER_PORT:8082}
+
+spring:
+  main:
+    banner-mode: console
+  config:
+    import:
+      - classpath:application-common.yml
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27017/iot_db}
+
+app:
+  rabbitmq:
+    queue:
+      analytics:
+        name: analytics.queue
+      alerts:
+        name: alerts.queue
+  mongodb:
+    collection:
+      devices: devices
+      analytics: analytics
+      alerts: alerts

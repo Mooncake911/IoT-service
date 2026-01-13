@@ -18,7 +18,7 @@ public class RabbitConfig {
     @Value("${app.rabbitmq.exchange.alerts}")
     private String alertsExchangeName;
 
-    @Value("${app.rabbitmq.queue.rule-engine}")
+    @Value("${app.rabbitmq.queue.rule-engine.name}")
     private String ruleEngineQueueName;
 
     @Value("${app.rabbitmq.queue.rule-engine.ttl}")

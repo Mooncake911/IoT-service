@@ -1,0 +1,22 @@
+spring:
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_MQ_PORT:5672}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+app:
+  rabbitmq:
+    exchange:
+      data: iot.data.exchange
+      analytics: analytics.exchange
+      alerts: alerts.exchange

@@ -18,7 +18,7 @@ public class RabbitConfig {
     @Value("${app.rabbitmq.exchange.analytics}")
     private String analyticsExchangeName;
 
-    @Value("${app.rabbitmq.queue.analytics}")
+    @Value("${app.rabbitmq.queue.analytics.name}")
     private String analyticsQueueName;
 
     @Value("${app.rabbitmq.queue.analytics.ttl}")

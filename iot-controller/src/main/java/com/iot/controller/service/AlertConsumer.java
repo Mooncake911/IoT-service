@@ -17,7 +17,7 @@ public class AlertConsumer {
 
     private final AlertDataRepository alertDataRepository;
 
-    @RabbitListener(queues = "${app.rabbitmq.queue.alerts}")
+    @RabbitListener(queues = "${app.rabbitmq.queue.alerts.name}")
     public void consumeAlert(AlertData alert) {
         log.info("Received alert: {} for device {}", alert.ruleId(), alert.deviceId());
 

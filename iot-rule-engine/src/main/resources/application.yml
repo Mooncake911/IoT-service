@@ -1,0 +1,20 @@
+server:
+  port: ${RULE_ENGINE_PORT:8083}
+
+spring:
+  main:
+    banner-mode: console
+  config:
+    import:
+      - classpath:application-common.yml
+
+app:
+  rabbitmq:
+    queue:
+      rule-engine:
+        name: iot-rule-engine.queue
+        ttl: 5000
+
+rule-engine:
+  duration-rules:
+    required-packets: 10

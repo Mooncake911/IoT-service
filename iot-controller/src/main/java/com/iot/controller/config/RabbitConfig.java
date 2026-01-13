@@ -21,10 +21,10 @@ public class RabbitConfig {
     @Value("${app.rabbitmq.exchange.alerts}")
     private String alertsExchangeName;
 
-    @Value("${app.rabbitmq.queue.persistence}")
+    @Value("${app.rabbitmq.queue.analytics.name}")
     private String analyticsQueueName;
 
-    @Value("${app.rabbitmq.queue.alerts}")
+    @Value("${app.rabbitmq.queue.alerts.name}")
     private String alertsQueueName;
 
     // ==================== Exchanges ====================

@@ -13,22 +13,23 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AnalyticsConsumer {
 
-    private final AnalyticsDataRepository repository;
+        private final AnalyticsDataRepository repository;
 
-    @RabbitListener(queues = "${app.rabbitmq.queue.persistence}")
-    public void consumeAnalyticsData(AnalyticsData data) {
-        log.debug("Received analytics data for device {}", data.deviceId());
+        @RabbitListener(queues = "${app.rabbitmq.queue.analytics.name}")
+        public void consumeAnalyticsData(AnalyticsData data) {
+                log.debug("Received analytics data for device {}", data.deviceId());
 
-        AnalyticsEntity entity = new AnalyticsEntity(
-                null,
-                data.deviceId(),
-                data.timestamp(),
-                data.metrics());
+                AnalyticsEntity entity = new AnalyticsEntity(
+                                null,
+                                data.deviceId(),
+                                data.timestamp(),
+                                data.metrics());
 
-        repository.save(entity)
-                .doOnSuccess(_ -> log.trace("Analytics data saved for device {}", data.deviceId()))
-                .doOnError(error -> log.error("Failed to save analytics data for device {}: {}", data.deviceId(),
-                        error.getMessage()))
-                .subscribe();
-    }
+                repository.save(entity)
+                                .doOnSuccess(_ -> log.trace("Analytics data saved for device {}", data.deviceId()))
+                                .doOnError(error -> log.error("Failed to save analytics data for device {}: {}",
+                                                data.deviceId(),
+                                                error.getMessage()))
+                                .subscribe();
+        }
 }

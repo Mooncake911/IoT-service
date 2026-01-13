@@ -50,7 +50,7 @@ public class IngestionService {
                 .flatMap(savedEntities -> Mono
                         .fromRunnable(() -> rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData))
                         .subscribeOn(Schedulers.boundedElastic()))
-                .doOnSuccess(_ -> log.info("Batch ingested: size={}", deviceData.size()))
+                .doOnSuccess(saved -> log.info("Batch ingested: size={}", deviceData.size()))
                 .doOnError(error -> log.error("Failed to ingest batch: {}", error.getMessage())))
                 .then();
     }

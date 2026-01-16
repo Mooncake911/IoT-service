@@ -24,7 +24,7 @@ public class AnalyticsController {
     }
 
     @PostMapping("/config")
-    public Mono<String> setConfig(@RequestParam String method, @RequestParam int batchSize) {
+    public Mono<String> setConfig(@RequestParam("method") String method, @RequestParam("batchSize") int batchSize) {
         log.info("Updating analytics config: method={}, batchSize={}", method, batchSize);
         analyticsService.setCalculationMethod(method, batchSize);
         return Mono.just("Calculation method switched to: " + method + " (batch size: " + batchSize + ")");

@@ -7,11 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import reactor.test.StepVerifier;
 
 import java.util.Collections;
 import java.util.List;
 
+import reactor.test.StepVerifier;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -22,14 +22,11 @@ class AnalyticsServiceTest {
     @Mock
     private AnalyticsPublisher analyticsPublisher;
 
-    @Mock
-    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
-
     private AnalyticsService analyticsService;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
-        analyticsService = new AnalyticsService(analyticsPublisher, meterRegistry, "Sequential", 10);
+        analyticsService = new AnalyticsService(analyticsPublisher, "Sequential", 10);
     }
 
     @Test

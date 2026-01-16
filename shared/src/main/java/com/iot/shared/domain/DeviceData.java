@@ -5,6 +5,7 @@ import com.iot.shared.domain.components.Status;
 import com.iot.shared.domain.components.Type;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import lombok.NonNull;
 import java.util.List;
 import java.util.Collections;
 
@@ -34,6 +35,7 @@ public record DeviceData(
     }
 
     @Override
+    @NonNull
     public String toString() {
         return String.format(
                 "Device{id=%d, name='%s', type=%s, manufacturer='%s', location=%s, status=%s, capabilities=%d}",

@@ -3,6 +3,7 @@ package com.iot.shared.domain;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import lombok.NonNull;
 import java.time.Instant;
 import java.util.Map;
 
@@ -11,6 +12,7 @@ public record AnalyticsData(
                 @JsonProperty("timestamp") @JsonFormat(shape = JsonFormat.Shape.STRING) Instant timestamp,
                 @JsonProperty("metrics") Map<String, Double> metrics) {
         @Override
+        @NonNull
         public String toString() {
                 return String.format("Analytics[Device=%d] Time=%s, Metrics=%s",
                                 deviceId, timestamp, metrics);

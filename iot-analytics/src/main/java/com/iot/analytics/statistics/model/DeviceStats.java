@@ -2,6 +2,7 @@ package com.iot.analytics.statistics.model;
 
 import com.iot.shared.domain.components.Type;
 
+import lombok.NonNull;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -143,6 +144,7 @@ public final class DeviceStats {
     }
 
     @Override
+    @NonNull
     public String toString() {
         StringBuilder sb = new StringBuilder("DeviceStats{");
 

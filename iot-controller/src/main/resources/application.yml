@@ -6,7 +6,7 @@ spring:
     banner-mode: console
   config:
     import:
-      - classpath:application-common.yml
+      - optional:classpath:application-common.yml
   data:
     mongodb:
       uri: ${MONGO_URI:mongodb://localhost:27017/iot_db}

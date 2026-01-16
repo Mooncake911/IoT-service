@@ -305,7 +305,7 @@ public class DeviceGenerator {
             case ACTUATOR_LOCK -> 0.80;
             case CAMERA -> 0.75; // Камеры могут быть отключены
             case SENSOR_TEMPERATURE, SENSOR_HUMIDITY -> 0.70; // Датчики часто на батарее
-            default -> 0.80;
+            default -> 0.65;
         };
     }
 

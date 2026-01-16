@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
+import lombok.NonNull;
+
 public record Status(
         @JsonProperty("isOnline") boolean isOnline,
         @JsonProperty("batteryLevel") int batteryLevel,
@@ -18,6 +20,7 @@ public record Status(
     }
 
     @Override
+    @NonNull
     public String toString() {
         return String.format("Status[online=%s, battery=%d%%, signal=%d%%, lastSeen=%s]",
                 isOnline, batteryLevel, signalStrength, lastHeartbeat);

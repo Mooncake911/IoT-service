@@ -6,7 +6,7 @@ spring:
     banner-mode: console
   config:
     import:
-      - classpath:application-common.yml
+      - optional:classpath:application-common.yml
 
 app:
   rabbitmq:

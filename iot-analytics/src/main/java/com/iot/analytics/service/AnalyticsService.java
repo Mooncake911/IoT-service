@@ -115,16 +115,11 @@ public class AnalyticsService {
                     // Use the ID of the first device as reference or -1 for batch
                     long distinctId = deviceData.getFirst().id();
 
-                    // Construct DTO
+                    // Construct DTO using all available metrics from DeviceStats
                     com.iot.shared.domain.AnalyticsData data = new com.iot.shared.domain.AnalyticsData(
                             distinctId,
                             java.time.Instant.now(),
-                            java.util.Map.of(
-                                    "averageBattery", stats.getAvgBattery() != null ? stats.getAvgBattery() : 0.0,
-                                    "averageSignal", stats.getAvgSignal() != null ? stats.getAvgSignal() : 0.0,
-                                    "onlineDevices",
-                                    stats.getOnlineCount() != null ? (double) stats.getOnlineCount() : 0.0,
-                                    "totalDevices", stats.getCount() != null ? (double) stats.getCount() : 0.0));
+                            stats.getMetrics());
 
                     return Mono.fromRunnable(() -> analyticsPublisher.publish(data));
                 })

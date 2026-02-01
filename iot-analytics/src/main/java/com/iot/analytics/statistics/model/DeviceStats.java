@@ -46,66 +46,6 @@ public final class DeviceStats {
         this.devicesByCapabilities = builder.devicesByCapabilities;
     }
 
-    public Long getCount() {
-        return count;
-    }
-
-    public Long getOnlineCount() {
-        return onlineCount;
-    }
-
-    public Double getAvgBattery() {
-        return avgBattery;
-    }
-
-    public Double getMinBattery() {
-        return minBattery;
-    }
-
-    public Double getMaxBattery() {
-        return maxBattery;
-    }
-
-    public Double getAvgSignal() {
-        return avgSignal;
-    }
-
-    public Double getMinSignal() {
-        return minSignal;
-    }
-
-    public Double getMaxSignal() {
-        return maxSignal;
-    }
-
-    public Double getAvgHeartbeatDelay() {
-        return avgHeartbeatDelay;
-    }
-
-    public Double getMinHeartbeatDelay() {
-        return minHeartbeatDelay;
-    }
-
-    public Double getMaxHeartbeatDelay() {
-        return maxHeartbeatDelay;
-    }
-
-    public Double getCoverageVolume() {
-        return coverageVolume;
-    }
-
-    public Map<Type, Long> getDevicesByType() {
-        return devicesByType;
-    }
-
-    public Map<String, Long> getDevicesByManufacturer() {
-        return devicesByManufacturer;
-    }
-
-    public Map<String, Long> getDevicesByCapabilities() {
-        return devicesByCapabilities;
-    }
-
     // Проверки наличия данных
     public boolean hadCountData() {
         return this.count != null;
@@ -141,6 +81,55 @@ public final class DeviceStats {
 
     public boolean hasCapabilitiesData() {
         return devicesByCapabilities != null;
+    }
+
+    /**
+     * Returns all available metrics as a flat map of doubles.
+     * This avoids redundant null checks in the service layer.
+     */
+    public Map<String, Double> getMetrics() {
+        Map<String, Double> metrics = new HashMap<>();
+
+        if (count != null)
+            metrics.put("totalDevices", count.doubleValue());
+        if (onlineCount != null)
+            metrics.put("onlineDevices", onlineCount.doubleValue());
+
+        if (avgBattery != null)
+            metrics.put("averageBattery", avgBattery);
+        if (minBattery != null)
+            metrics.put("minBattery", minBattery);
+        if (maxBattery != null)
+            metrics.put("maxBattery", maxBattery);
+
+        if (avgSignal != null)
+            metrics.put("averageSignal", avgSignal);
+        if (minSignal != null)
+            metrics.put("minSignal", minSignal);
+        if (maxSignal != null)
+            metrics.put("maxSignal", maxSignal);
+
+        if (avgHeartbeatDelay != null)
+            metrics.put("averageHeartbeatDelay", avgHeartbeatDelay);
+        if (minHeartbeatDelay != null)
+            metrics.put("minHeartbeatDelay", minHeartbeatDelay);
+        if (maxHeartbeatDelay != null)
+            metrics.put("maxHeartbeatDelay", maxHeartbeatDelay);
+
+        if (coverageVolume != null)
+            metrics.put("coverageVolume", coverageVolume);
+
+        if (devicesByType != null) {
+            devicesByType.forEach((type, c) -> metrics.put("type." + type.name(), c.doubleValue()));
+        }
+        if (devicesByManufacturer != null) {
+            devicesByManufacturer.forEach((man, c) -> metrics.put("manufacturer." + man, c.doubleValue()));
+        }
+        if (devicesByCapabilities != null) {
+            devicesByCapabilities.forEach((cap, c) -> metrics.put("capability." + cap, c.doubleValue()));
+        }
+
+        return metrics;
     }
 
     @Override

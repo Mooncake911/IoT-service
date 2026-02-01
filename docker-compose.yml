@@ -35,7 +35,8 @@ services:
     <<: *base-service
     build:
       context: .
-      dockerfile: iot-analytics/Dockerfile
+      dockerfile: Dockerfile
+      target: iot-analytics
       args:
         SERVICE_NAME: iot-analytics
     image: iot-analytics:latest
@@ -54,7 +55,8 @@ services:
     <<: *base-service
     build:
       context: .
-      dockerfile: iot-controller/Dockerfile
+      dockerfile: Dockerfile
+      target: iot-controller
       args:
         SERVICE_NAME: iot-controller
     image: iot-controller:latest
@@ -75,7 +77,8 @@ services:
     <<: *base-service
     build:
       context: .
-      dockerfile: iot-rule-engine/Dockerfile
+      dockerfile: Dockerfile
+      target: iot-rule-engine
       args:
         SERVICE_NAME: iot-rule-engine
     image: iot-rule-engine:latest
@@ -120,7 +123,8 @@ services:
     <<: *base-service
     build:
       context: .
-      dockerfile: iot-data-simulator/Dockerfile
+      dockerfile: Dockerfile
+      target: iot-data-simulator
       args:
         SERVICE_NAME: iot-data-simulator
     image: iot-data-simulator:latest

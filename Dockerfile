@@ -35,7 +35,7 @@ COPY --from=build /app/${SERVICE_NAME}/target/*.jar app.jar
 RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 
 # Stage 3: Final runtime image
-FROM eclipse-temurin:24-jre-alpine
+FROM eclipse-temurin:24-jre-alpine AS final
 WORKDIR /app
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -47,3 +47,9 @@ COPY --from=layers /app/extracted/snapshot-dependencies/ ./
 COPY --from=layers /app/extracted/application/ ./
 
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
+
+# Named targets for better visibility in logs
+FROM final AS iot-controller
+FROM final AS iot-analytics
+FROM final AS iot-rule-engine
+FROM final AS iot-data-simulator

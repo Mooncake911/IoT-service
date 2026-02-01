@@ -5,19 +5,28 @@ x-base-service: &base-service
     - iot-network
 
 x-java-env: &java-env
-  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES}
   JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS}
   JDK_JAVA_OPTIONS: ${JDK_JAVA_OPTIONS}
 
-x-rabbitmq-env: &rabbitmq-env
-  SPRING_RABBITMQ_HOST: ${RABBIT_HOST}
-  SPRING_RABBITMQ_USERNAME: ${RABBIT_USER}
-  SPRING_RABBITMQ_PASSWORD: ${RABBIT_PASS}
+x-spring-env: &spring-env
+  SPRING_SERVER_PORT: ${SPRING_INTERNAL_PORT}
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES}
 
-# Шаблон сборки: меняется только путь к Dockerfile
-x-build-template: &build-template
-  context: .
-  dockerfile: Dockerfile
+x-rabbitmq-env: &rabbitmq-env
+  RABBIT_USER: ${RABBIT_USER}
+  RABBIT_PASS: ${RABBIT_PASS}
+  RABBIT_HOST: ${RABBIT_HOST}
+  RABBIT_MQ_PORT: ${RABBIT_INTERNAL_MQ_PORT}
+  RABBIT_MGMT_PORT: ${RABBIT_INTERNAL_MGMT_PORT}
+  RABBIT_STOMP_PORT: ${RABBIT_INTERNAL_STOMP_PORT}
+
+x-mongodb-env: &mongodb-env
+  MONGO_USER: ${MONGO_USER}
+  MONGO_PASS: ${MONGO_PASS}
+  MONGO_HOST: ${MONGO_HOST}
+  MONGO_DB: ${MONGO_DB}
+  MONGO_PORT: ${MONGO_INTERNAL_PORT}
+  MONGO_URI: ${MONGO_URI}
 
 # --- СЕРВИСЫ ---
 
@@ -25,7 +34,8 @@ services:
   iot-analytics:
     <<: *base-service
     build:
-      <<: *build-template
+      context: .
+      dockerfile: iot-analytics/Dockerfile
       args:
         SERVICE_NAME: iot-analytics
     image: iot-analytics:latest
@@ -33,8 +43,7 @@ services:
     ports:
       - "${ANALYTICS_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
-      <<: [ *java-env, *rabbitmq-env ]
-      SERVER_PORT: ${SPRING_INTERNAL_PORT}
+      <<: [ *java-env, *spring-env, *rabbitmq-env ]
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -44,7 +53,8 @@ services:
   iot-controller:
     <<: *base-service
     build:
-      <<: *build-template
+      context: .
+      dockerfile: iot-controller/Dockerfile
       args:
         SERVICE_NAME: iot-controller
     image: iot-controller:latest
@@ -52,9 +62,7 @@ services:
     ports:
       - "${CONTROLLER_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
-      <<: [ *java-env, *rabbitmq-env ]
-      SERVER_PORT: ${SPRING_INTERNAL_PORT}
-      SPRING_DATA_MONGODB_URI: ${MONGO_URI}
+      <<: [ *java-env, *spring-env, *rabbitmq-env, *mongodb-env ]
     depends_on:
       mongodb:
         condition: service_healthy
@@ -66,7 +74,8 @@ services:
   iot-rule-engine:
     <<: *base-service
     build:
-      <<: *build-template
+      context: .
+      dockerfile: iot-rule-engine/Dockerfile
       args:
         SERVICE_NAME: iot-rule-engine
     image: iot-rule-engine:latest
@@ -74,33 +83,44 @@ services:
     ports:
       - "${RULE_ENGINE_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
-      <<: [ *java-env, *rabbitmq-env ]
-      SERVER_PORT: ${SPRING_INTERNAL_PORT}
+      <<: [ *java-env, *spring-env, *rabbitmq-env ]
     depends_on:
       rabbitmq:
         condition: service_healthy
       logstash:
         condition: service_healthy
 
-#  iot-dashboard:
-#    <<: *base-service
-#    build:
-#      context: ./iot-dashboard
-#      dockerfile: Dockerfile
-#    container_name: iot-dashboard
-#    image: iot-dashboard:latest
-#    ports:
-#      - "${DASHBOARD_PORT}:${NGINX_INTERNAL_PORT}"
-#    depends_on:
-#      iot-controller:
-#        condition: service_started
-#      rabbitmq:
-#        condition: service_healthy
+  iot-dashboard:
+    <<: *base-service
+    build:
+      context: ./iot-dashboard
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: iot-dashboard
+    image: iot-dashboard:latest
+    container_name: iot-dashboard
+    ports:
+      - "${DASHBOARD_PORT}:8501"
+    environment:
+      <<: [ *mongodb-env ]
+      SIMULATOR_API_URL: http://iot-data-simulator:${SPRING_INTERNAL_PORT}
+      ANALYTICS_API_URL: http://iot-analytics:${SPRING_INTERNAL_PORT}
+      CONTROLLER_API_URL: http://iot-controller:${SPRING_INTERNAL_PORT}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      iot-controller:
+        condition: service_started
+      iot-analytics:
+        condition: service_started
+      iot-data-simulator:
+        condition: service_started
 
   iot-data-simulator:
     <<: *base-service
     build:
-      <<: *build-template
+      context: .
+      dockerfile: iot-data-simulator/Dockerfile
       args:
         SERVICE_NAME: iot-data-simulator
     image: iot-data-simulator:latest
@@ -108,7 +128,7 @@ services:
     ports:
       - "${SIMULATOR_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
-      <<: *java-env
+      <<: [ *java-env, *spring-env ]
       CONTROLLER_URL: http://iot-controller:${SPRING_INTERNAL_PORT}/api/ingest
     depends_on:
       iot-controller:
@@ -222,20 +242,6 @@ services:
     restart: on-failure
     command: >
       sh -c "sleep 15; curl -X POST 'http://kibana:5601/api/data_views/data_view' -H 'Content-Type: application/json' -H 'kbn-xsrf: true' -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}'"
-
-  filebeat:
-    <<: *base-service
-    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
-    container_name: filebeat
-    user: root
-    volumes:
-      - ./elk/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      logstash:
-        condition: service_started
-    command: [ "filebeat", "-e", "--strict.perms=false" ]
 
   # --- MONITORING ---
 

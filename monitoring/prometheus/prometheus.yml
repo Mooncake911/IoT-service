@@ -10,14 +10,14 @@ scrape_configs:
   - job_name: 'iot-controller'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['iot-controller:8082']
+      - targets: ['iot-controller:8080']
 
   - job_name: 'iot-analytics'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['iot-analytics:8081']
+      - targets: ['iot-analytics:8080']
 
   - job_name: 'iot-rule-engine'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['iot-rule-engine:8083']
+      - targets: ['iot-rule-engine:8080']

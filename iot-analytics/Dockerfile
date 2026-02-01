@@ -1,39 +1,36 @@
 # syntax=docker/dockerfile:1
+ARG SERVICE_NAME
 
 # Stage 1: Build the application
 FROM maven:3.9-eclipse-temurin-24 AS build
-WORKDIR /app
 ARG SERVICE_NAME
+WORKDIR /app
 
-# Copy POMs for dependency caching
+# Copy ALL poms to satisfy Maven's module check
 COPY pom.xml .
 COPY shared/pom.xml shared/
-# Copy all service POMs to ensure the reactor can build the module graph
 COPY iot-analytics/pom.xml iot-analytics/
 COPY iot-controller/pom.xml iot-controller/
 COPY iot-data-simulator/pom.xml iot-data-simulator/
 COPY iot-rule-engine/pom.xml iot-rule-engine/
 
-# Resolve dependencies with cache mount
-# -pl shared,${SERVICE_NAME} ensures we only resolve what's needed for this specific service + shared
+# Resolve dependencies for the specific service and its shared dependency
 RUN --mount=type=cache,target=/root/.m2 \
     mvn dependency:go-offline dependency:resolve-plugins -pl shared,${SERVICE_NAME} -am -fn
 
-# Copy source code
-COPY . .
+# Copy only necessary source code
+COPY shared/src ./shared/src/
+COPY ${SERVICE_NAME}/src ./${SERVICE_NAME}/src/
 
-# Copy common config to service resources before build
-COPY config/application-common.yml ${SERVICE_NAME}/src/main/resources/application-common.yml
-
-# Build with cache mount
+# Package the application
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -pl shared,${SERVICE_NAME} -am -DskipTests
+    mvn clean package -pl ${SERVICE_NAME} -am -DskipTests
 
 # Stage 2: Extract layers
 FROM eclipse-temurin:24-jre-alpine AS layers
-WORKDIR /app
 ARG SERVICE_NAME
-# Find the built JAR for the specific service
+WORKDIR /app
+
 COPY --from=build /app/${SERVICE_NAME}/target/*.jar app.jar
 RUN java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
 

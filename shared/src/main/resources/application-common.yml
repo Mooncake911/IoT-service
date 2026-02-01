@@ -1,9 +1,12 @@
+server:
+  port: ${SPRING_SERVER_PORT}
+
 spring:
   rabbitmq:
-    host: ${RABBIT_HOST:localhost}
-    port: ${RABBIT_MQ_PORT:5672}
-    username: ${RABBIT_USER:guest}
-    password: ${RABBIT_PASS:guest}
+    port: ${RABBIT_MQ_PORT}
+    host: ${RABBIT_HOST}
+    username: ${RABBIT_USER}
+    password: ${RABBIT_PASS}
 
 management:
   endpoints:

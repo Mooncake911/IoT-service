@@ -12,7 +12,7 @@ public class HardcodedRules {
 
         private final int requiredPackets;
 
-        public HardcodedRules(@Value("${rule-engine.duration-rules.required-packets:10}") int requiredPackets) {
+        public HardcodedRules(@Value("${app.rules.duration-rules.required-packets}") int requiredPackets) {
                 this.requiredPackets = requiredPackets;
         }
 

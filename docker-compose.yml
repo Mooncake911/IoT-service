@@ -107,8 +107,9 @@ services:
     environment:
       <<: [ *mongodb-env ]
       SIMULATOR_API_URL: http://iot-data-simulator:${SPRING_INTERNAL_PORT}
-      ANALYTICS_API_URL: http://iot-analytics:${SPRING_INTERNAL_PORT}
+      RULE_ENGINE_API_URL: http://iot-rule-engine:${SPRING_INTERNAL_PORT}
       CONTROLLER_API_URL: http://iot-controller:${SPRING_INTERNAL_PORT}
+      ANALYTICS_API_URL: http://iot-analytics:${SPRING_INTERNAL_PORT}
     depends_on:
       mongodb:
         condition: service_healthy

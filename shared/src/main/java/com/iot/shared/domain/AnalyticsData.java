@@ -10,7 +10,7 @@ import java.util.Map;
 public record AnalyticsData(
                 @JsonProperty("deviceId") long deviceId,
                 @JsonProperty("timestamp") @JsonFormat(shape = JsonFormat.Shape.STRING) Instant timestamp,
-                @JsonProperty("metrics") Map<String, Double> metrics) {
+                @JsonProperty("metrics") Map<String, Object> metrics) {
         @Override
         @NonNull
         public String toString() {

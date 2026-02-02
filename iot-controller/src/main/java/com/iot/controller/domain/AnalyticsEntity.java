@@ -8,8 +8,8 @@ import java.util.Map;
 
 @Document(collection = "${app.mongodb.collection.analytics}")
 public record AnalyticsEntity(
-                @Id String id,
-                long deviceId,
-                Instant timestamp,
-                Map<String, Double> metrics) {
+        @Id String id,
+        long deviceId,
+        Instant timestamp,
+        Map<String, Object> metrics) {
 }

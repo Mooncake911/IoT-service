@@ -84,49 +84,55 @@ public final class DeviceStats {
     }
 
     /**
-     * Returns all available metrics as a flat map of doubles.
-     * This avoids redundant null checks in the service layer.
+     * Returns all available metrics as a nested map.
      */
-    public Map<String, Double> getMetrics() {
-        Map<String, Double> metrics = new HashMap<>();
+    public Map<String, Object> getMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
 
         if (count != null)
             metrics.put("totalDevices", count.doubleValue());
         if (onlineCount != null)
             metrics.put("onlineDevices", onlineCount.doubleValue());
-
-        if (avgBattery != null)
-            metrics.put("averageBattery", avgBattery);
-        if (minBattery != null)
-            metrics.put("minBattery", minBattery);
-        if (maxBattery != null)
-            metrics.put("maxBattery", maxBattery);
-
-        if (avgSignal != null)
-            metrics.put("averageSignal", avgSignal);
-        if (minSignal != null)
-            metrics.put("minSignal", minSignal);
-        if (maxSignal != null)
-            metrics.put("maxSignal", maxSignal);
-
-        if (avgHeartbeatDelay != null)
-            metrics.put("averageHeartbeatDelay", avgHeartbeatDelay);
-        if (minHeartbeatDelay != null)
-            metrics.put("minHeartbeatDelay", minHeartbeatDelay);
-        if (maxHeartbeatDelay != null)
-            metrics.put("maxHeartbeatDelay", maxHeartbeatDelay);
-
         if (coverageVolume != null)
             metrics.put("coverageVolume", coverageVolume);
 
+        if (avgBattery != null) {
+            metrics.put("battery", Map.of(
+                    "avg", avgBattery,
+                    "min", minBattery,
+                    "max", maxBattery));
+        }
+
+        if (avgSignal != null) {
+            metrics.put("signal", Map.of(
+                    "avg", avgSignal,
+                    "min", minSignal,
+                    "max", maxSignal));
+        }
+
+        if (avgHeartbeatDelay != null) {
+            metrics.put("heartbeat", Map.of(
+                    "avg", avgHeartbeatDelay,
+                    "min", minHeartbeatDelay,
+                    "max", maxHeartbeatDelay));
+        }
+
         if (devicesByType != null) {
-            devicesByType.forEach((type, c) -> metrics.put("type." + type.name(), c.doubleValue()));
+            Map<String, Double> typeMap = new HashMap<>();
+            devicesByType.forEach((type, c) -> typeMap.put(type.name(), c.doubleValue()));
+            metrics.put("byType", typeMap);
         }
+
         if (devicesByManufacturer != null) {
-            devicesByManufacturer.forEach((man, c) -> metrics.put("manufacturer." + man, c.doubleValue()));
+            Map<String, Double> manufacturerMap = new HashMap<>();
+            devicesByManufacturer.forEach((man, c) -> manufacturerMap.put(man, c.doubleValue()));
+            metrics.put("byManufacturer", manufacturerMap);
         }
+
         if (devicesByCapabilities != null) {
-            devicesByCapabilities.forEach((cap, c) -> metrics.put("capability." + cap, c.doubleValue()));
+            Map<String, Double> capabilityMap = new HashMap<>();
+            devicesByCapabilities.forEach((cap, c) -> capabilityMap.put(cap, c.doubleValue()));
+            metrics.put("byCapabilities", capabilityMap);
         }
 
         return metrics;

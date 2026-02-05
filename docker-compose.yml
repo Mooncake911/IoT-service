@@ -208,6 +208,7 @@ services:
       - "${LOGSTASH_PORT}:5044"
     volumes:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./elk/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
     environment:
       LS_JAVA_OPTS: ${LS_JAVA_OPTS}
     depends_on:
@@ -217,7 +218,8 @@ services:
       test: [ "CMD", "curl", "-f", "http://localhost:9600" ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 60s
 
   kibana:
     <<: *base-service

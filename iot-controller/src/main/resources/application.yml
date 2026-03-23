@@ -4,17 +4,40 @@ spring:
   config:
     import:
       - optional:classpath:application-common.yml
+  codec:
+    max-in-memory-size: 10MB
   data:
     mongodb:
-      uri: ${MONGO_URI}
+      uri: ${MONGO_URI:mongodb://admin:admin@localhost:27017/iot_db?authSource=admin}
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        prefetch: 1
+        concurrency: 4
+        max-concurrency: 10
 
 app:
   rabbitmq:
-    queue:
-      analytics:
+    analytics:
+      queue:
         name: analytics.queue
-      alerts:
+      batching:
+        size: ${APP_BATCH_SIZE:500}
+        timeout-ms: 1000
+        buffer-limit: 10000
+        concurrency: 2
+    alerts:
+      queue:
         name: alerts.queue
+      batching:
+        size: ${APP_BATCH_SIZE:500}
+        timeout-ms: 1000
+        buffer-limit: 10000
+        concurrency: 4
   mongodb:
     collection:
       devices: devices

@@ -18,10 +18,10 @@ public class RabbitConfig {
     @Value("${app.rabbitmq.exchange.analytics}")
     private String analyticsExchangeName;
 
-    @Value("${app.rabbitmq.queue.analytics.name}")
+    @Value("${app.rabbitmq.analytics.queue.name}")
     private String analyticsQueueName;
 
-    @Value("${app.rabbitmq.queue.analytics.ttl}")
+    @Value("${app.rabbitmq.analytics.queue.ttl}")
     private int analyticsQueueTtl;
 
     // ==================== Exchanges ====================

@@ -34,13 +34,15 @@ public class IngestionServiceTest {
     @BeforeEach
     public void setUp() {
         ReflectionTestUtils.setField(ingestionService, "dataExchangeName", "iot.data.exchange");
+        ReflectionTestUtils.setField(ingestionService, "publishChunkSize", 50);
     }
 
     @Test
     @DisplayName("Should save to Mongo and publish to RabbitMQ")
     public void ingestData_shouldSaveAndPublish() {
         // Arrange
-        DeviceData deviceData = new DeviceData(123L, "Test Device", null, Type.CAMERA, Collections.singletonList("temp"), null,
+        DeviceData deviceData = new DeviceData(123L, "Test Device", null, Type.CAMERA,
+                Collections.singletonList("temp"), null,
                 null);
 
         DeviceEntity savedEntity = new DeviceEntity(

@@ -119,7 +119,11 @@ public final class DeviceStats {
 
         if (devicesByType != null) {
             Map<String, Double> typeMap = new HashMap<>();
-            devicesByType.forEach((type, c) -> typeMap.put(type.name(), c.doubleValue()));
+            devicesByType.forEach((type, c) -> {
+                if (type != null) {
+                    typeMap.put(type.name(), c.doubleValue());
+                }
+            });
             metrics.put("byType", typeMap);
         }
 

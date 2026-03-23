@@ -26,14 +26,19 @@ public class SimulationService {
     private String analyticsUrl;
 
     private final AtomicInteger deviceCount;
-    private final AtomicInteger messagesPerSecond;
+    private final AtomicInteger frequencySeconds;
+    private final AtomicInteger batchSize;
 
     public int getDeviceCount() {
         return deviceCount.get();
     }
 
-    public int getMessagesPerSecond() {
-        return messagesPerSecond.get();
+    public int getFrequencySeconds() {
+        return frequencySeconds.get();
+    }
+
+    public int getBatchSize() {
+        return batchSize.get();
     }
 
     private Disposable simulationSubscription;
@@ -42,17 +47,20 @@ public class SimulationService {
     public SimulationService(
             WebClient.Builder webClientBuilder,
             @Value("${app.simulation.device-count}") int deviceCount,
-            @Value("${app.simulation.messages-per-second}") int messagesPerSecond) {
+            @Value("${app.simulation.frequency-seconds}") int frequencySeconds,
+            @Value("${app.simulation.batch-size}") int batchSize) {
         this.webClient = webClientBuilder.build();
         this.deviceCount = new AtomicInteger(deviceCount);
-        this.messagesPerSecond = new AtomicInteger(messagesPerSecond);
+        this.frequencySeconds = new AtomicInteger(frequencySeconds);
+        this.batchSize = new AtomicInteger(batchSize);
     }
 
-    public Mono<Void> configure(int deviceCount, int messagesPerSecond) {
+    public Mono<Void> configure(int deviceCount, int frequencySeconds) {
         return Mono.fromRunnable(() -> {
-            log.info("Configuring simulation: deviceCount={}, messagesPerSecond={}", deviceCount, messagesPerSecond);
+            log.info("Configuring simulation: deviceCount={}, frequencySeconds={}",
+                    deviceCount, frequencySeconds);
             this.deviceCount.set(deviceCount);
-            this.messagesPerSecond.set(messagesPerSecond);
+            this.frequencySeconds.set(frequencySeconds);
             this.deviceData = deviceGenerator.randomDevices(deviceCount);
         });
     }
@@ -62,14 +70,19 @@ public class SimulationService {
             return Mono.empty();
         }
 
-        return (deviceData == null ? configure(deviceCount.get(), messagesPerSecond.get()) : Mono.empty())
+        return (deviceData == null ? configure(deviceCount.get(), frequencySeconds.get())
+                : Mono.empty())
                 .then(Mono.fromRunnable(() -> {
-                    log.info("Starting simulation with {} devices at {} msg/s", deviceCount.get(),
-                            messagesPerSecond.get());
-                    long periodMs = 1000L / messagesPerSecond.get();
+                    log.info("Starting simulation: {} devices, frequency 1/{}s", deviceCount.get(),
+                            frequencySeconds.get());
 
-                    simulationSubscription = Flux.interval(Duration.ofMillis(periodMs))
-                            .flatMap(tick -> sendData())
+                    simulationSubscription = Flux.interval(Duration.ofSeconds(1))
+                            .flatMap(tick -> {
+                                int currentTotal = deviceCount.get();
+                                int freq = frequencySeconds.get();
+                                int devicesToSendPerSecond = Math.max(1, currentTotal / freq);
+                                return sendData(devicesToSendPerSecond);
+                            })
                             .subscribe(
                                     null,
                                     error -> log.error("Critical error in simulation: {}", error.getMessage()));
@@ -85,20 +98,35 @@ public class SimulationService {
         }).then();
     }
 
-    private Mono<Void> sendData() {
-        if (deviceData != null) {
-            this.deviceData = deviceData.stream()
-                    .map(deviceGenerator::updateDevice)
-                    .toList();
+    private Mono<Void> sendData(int count) {
+        if (deviceData == null || deviceData.isEmpty()) {
+            return Mono.empty();
         }
 
-        return webClient.post()
-                .uri(analyticsUrl)
-                .bodyValue(deviceData)
-                .retrieve()
-                .bodyToMono(Void.class)
-                .doOnError(e -> log.error("Error sending data to analytics: {}", e.getMessage()))
-                .onErrorResume(e -> Mono.empty()); // Continue stream even on error
+        List<DeviceData> toSend = deviceData.stream()
+                .limit(count)
+                .map(deviceGenerator::updateDevice)
+                .toList();
+
+        if (!toSend.isEmpty()) {
+            log.debug("Sending stats for device IDs: {}", toSend.stream().map(DeviceData::id).toList());
+        }
+
+        // Split into batches and send sequentially for backpressure
+        return Flux.fromIterable(toSend)
+                .buffer(batchSize.get())
+                .concatMap(batch -> {
+                    log.debug("Sending batch of {} devices", batch.size());
+                    return webClient.post()
+                            .uri(analyticsUrl)
+                            .bodyValue(batch)
+                            .retrieve()
+                            .bodyToMono(Void.class)
+                            .retry(1)
+                            .doOnError(e -> log.error("Error sending batch to analytics: {}", e.getMessage()))
+                            .onErrorResume(e -> Mono.empty());
+                })
+                .then();
     }
 
     public boolean isRunning() {

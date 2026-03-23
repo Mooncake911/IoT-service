@@ -6,6 +6,8 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 @Slf4j
 public class AnalyticsPublisher {
@@ -15,16 +17,32 @@ public class AnalyticsPublisher {
     @Value("${app.rabbitmq.exchange.analytics}")
     private String analyticsExchangeName;
 
+    @Value("${app.rabbitmq.chunk-size}")
+    private int publishChunkSize;
+
     public AnalyticsPublisher(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
     }
 
     public void publish(AnalyticsData data) {
         try {
-            log.trace("Publishing stats for device {}", data.deviceId());
-            rabbitTemplate.convertAndSend(analyticsExchangeName, "", data);
+            rabbitTemplate.convertAndSend(analyticsExchangeName, "", List.of(data));
         } catch (Exception e) {
-            log.error("Failed to publish analytics data for device {}: {}", data.deviceId(), e.getMessage());
+            log.error("Failed to publish analytics data: {}", e.getMessage());
+        }
+    }
+
+    public void publishBatch(List<AnalyticsData> dataList) {
+        if (dataList == null || dataList.isEmpty()) return;
+
+        for (int i = 0; i < dataList.size(); i += publishChunkSize) {
+            List<AnalyticsData> chunk = dataList.subList(i, Math.min(i + publishChunkSize, dataList.size()));
+            try {
+                log.trace("Publishing chunk of {} analytics records", chunk.size());
+                rabbitTemplate.convertAndSend(analyticsExchangeName, "", chunk);
+            } catch (Exception e) {
+                log.error("Failed to publish analytics chunk: {}", e.getMessage());
+            }
         }
     }
 }

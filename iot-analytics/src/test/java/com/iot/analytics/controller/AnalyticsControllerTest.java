@@ -38,7 +38,7 @@ public class AnalyticsControllerTest {
                                 .exchange()
                                 .expectStatus().isOk();
 
-                verify(analyticsService).calculateAndPublishStats(any());
+                verify(analyticsService).calculateStats(any());
         }
 
         @Test

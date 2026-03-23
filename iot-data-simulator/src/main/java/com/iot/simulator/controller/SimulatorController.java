@@ -18,10 +18,14 @@ public class SimulatorController {
     private final SimulationService simulationService;
 
     @PostMapping("/config")
-    public Mono<String> configure(@RequestParam int deviceCount, @RequestParam int messagesPerSecond) {
-        log.info("Updating simulator config: deviceCount={}, messagesPerSecond={}", deviceCount, messagesPerSecond);
-        return simulationService.configure(deviceCount, messagesPerSecond)
-                .then(Mono.just("Config changed to: " + deviceCount + " (msg/s: " + messagesPerSecond + ")"));
+    public Mono<String> configure(
+            @RequestParam("deviceCount") int deviceCount,
+            @RequestParam("frequencySeconds") int frequencySeconds) {
+        log.info("Updating simulator config: deviceCount={}, frequencySeconds={}",
+                deviceCount, frequencySeconds);
+        return simulationService.configure(deviceCount, frequencySeconds)
+                .then(Mono.just(
+                        "Config changed to: " + deviceCount + " devices (freq: 1/" + frequencySeconds + "s)"));
     }
 
     @PostMapping("/start")
@@ -42,7 +46,8 @@ public class SimulatorController {
             LinkedHashMap<String, Object> status = new LinkedHashMap<>();
             status.put("running", simulationService.isRunning());
             status.put("deviceCount", simulationService.getDeviceCount());
-            status.put("messagesPerSecond", simulationService.getMessagesPerSecond());
+            status.put("frequencySeconds", simulationService.getFrequencySeconds());
+            status.put("batchSize", simulationService.getBatchSize());
             return status;
         });
     }

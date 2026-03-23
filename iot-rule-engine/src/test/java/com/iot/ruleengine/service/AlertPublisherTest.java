@@ -5,7 +5,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -22,12 +21,13 @@ public class AlertPublisherTest {
     @Mock
     private RabbitTemplate rabbitTemplate;
 
-    @InjectMocks
     private AlertPublisher publisher;
 
     @BeforeEach
     public void setUp() {
+        publisher = new AlertPublisher(rabbitTemplate);
         ReflectionTestUtils.setField(publisher, "alertsExchangeName", "alerts.exchange");
+        ReflectionTestUtils.setField(publisher, "publishChunkSize", 100);
     }
 
     @Test
@@ -43,5 +43,24 @@ public class AlertPublisherTest {
 
         // Assert
         verify(rabbitTemplate).convertAndSend(eq("alerts.exchange"), eq(""), eq(alert));
+    }
+
+    @Test
+    @DisplayName("Should send alert batch to RabbitMQ exchange")
+    void publishBatch_shouldSendToRabbit() {
+        // Arrange
+        AlertData alert1 = new AlertData(
+                "abc1", 1L, "RULE1", "Rule 1", "CRITICAL",
+                10, 20, LocalDateTime.now(), "INSTANT");
+        AlertData alert2 = new AlertData(
+                "abc2", 2L, "RULE2", "Rule 2", "HIGH",
+                15, 20, LocalDateTime.now(), "INSTANT");
+        java.util.List<AlertData> alerts = java.util.List.of(alert1, alert2);
+
+        // Act
+        publisher.publishBatch(alerts);
+
+        // Assert
+        verify(rabbitTemplate).convertAndSend(eq("alerts.exchange"), eq(""), eq(alerts));
     }
 }

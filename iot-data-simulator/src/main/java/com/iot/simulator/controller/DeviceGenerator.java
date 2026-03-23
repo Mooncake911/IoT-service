@@ -336,14 +336,7 @@ public class DeviceGenerator {
         };
     }
 
-    private static class BatteryDistribution {
-        final double mean;
-        final double stdDev;
-
-        BatteryDistribution(double mean, double stdDev) {
-            this.mean = mean;
-            this.stdDev = stdDev;
-        }
+    private record BatteryDistribution(double mean, double stdDev) {
     }
 
     private int generateSignalStrength() {

@@ -28,7 +28,7 @@ class SimulationServiceTest {
     @BeforeEach
     void setUp() {
         when(webClientBuilder.build()).thenReturn(webClient);
-        simulationService = new SimulationService(webClientBuilder, 10, 1);
+        simulationService = new SimulationService(webClientBuilder, 10, 1, 500);
         ReflectionTestUtils.setField(simulationService, "analyticsUrl", "http://localhost:8080");
     }
 
@@ -36,7 +36,8 @@ class SimulationServiceTest {
     @DisplayName("Should initialize with default values")
     void shouldInitialize() {
         assertThat(simulationService.getDeviceCount()).isEqualTo(10);
-        assertThat(simulationService.getMessagesPerSecond()).isEqualTo(1);
+        assertThat(simulationService.getFrequencySeconds()).isEqualTo(1);
+        assertThat(simulationService.getBatchSize()).isEqualTo(500);
         assertThat(simulationService.isRunning()).isFalse();
     }
 
@@ -47,7 +48,8 @@ class SimulationServiceTest {
                 .verifyComplete();
 
         assertThat(simulationService.getDeviceCount()).isEqualTo(20);
-        assertThat(simulationService.getMessagesPerSecond()).isEqualTo(5);
+        assertThat(simulationService.getFrequencySeconds()).isEqualTo(5);
+        assertThat(simulationService.getBatchSize()).isEqualTo(500);
     }
 
     @Test

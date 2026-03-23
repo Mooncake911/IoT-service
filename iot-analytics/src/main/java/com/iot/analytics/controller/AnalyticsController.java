@@ -1,6 +1,7 @@
 package com.iot.analytics.controller;
 
 import com.iot.analytics.service.AnalyticsService;
+import com.iot.shared.domain.AnalyticsData;
 import com.iot.shared.domain.DeviceData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,9 +19,9 @@ public class AnalyticsController {
     private final AnalyticsService analyticsService;
 
     @PostMapping("/data")
-    public Mono<Void> receiveData(@RequestBody List<DeviceData> deviceData) {
+    public Mono<AnalyticsData> receiveData(@RequestBody List<DeviceData> deviceData) {
         log.debug("Received analytics data batch: size={}", deviceData.size());
-        return analyticsService.calculateAndPublishStats(deviceData);
+        return analyticsService.calculateStats(deviceData);
     }
 
     @PostMapping("/config")

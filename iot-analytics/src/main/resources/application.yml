@@ -4,13 +4,28 @@ spring:
   config:
     import:
       - optional:classpath:application-common.yml
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        prefetch: 1
+        concurrency: 4
+        max-concurrency: 10
 
 app:
   rabbitmq:
-    queue:
-      analytics:
+    analytics:
+      queue:
         name: iot-analytics.queue
-        ttl: 5000
+        ttl: 60000
+      batching:
+        size: ${APP_BATCH_SIZE:500}
+        timeout-ms: 1000
+        buffer-limit: 10000
+        concurrency: 8
   analytics:
     default-method: Sequential
-    default-batch-size: 50
+    default-batch-size: ${APP_BATCH_SIZE:500}

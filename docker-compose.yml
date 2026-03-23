@@ -41,10 +41,16 @@ services:
         SERVICE_NAME: iot-analytics
     image: iot-analytics:latest
     container_name: iot-analytics
+    stop_grace_period: 30s
+    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${ANALYTICS_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEM_LIMIT}
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -61,10 +67,16 @@ services:
         SERVICE_NAME: iot-controller
     image: iot-controller:latest
     container_name: iot-controller
+    stop_grace_period: 30s
+    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${CONTROLLER_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env, *mongodb-env ]
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEM_LIMIT}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -83,10 +95,16 @@ services:
         SERVICE_NAME: iot-rule-engine
     image: iot-rule-engine:latest
     container_name: iot-rule-engine
+    stop_grace_period: 30s
+    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${RULE_ENGINE_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEM_LIMIT}
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -102,6 +120,8 @@ services:
         SERVICE_NAME: iot-dashboard
     image: iot-dashboard:latest
     container_name: iot-dashboard
+    stop_grace_period: 30s
+    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${DASHBOARD_PORT}:8501"
     environment:
@@ -110,6 +130,10 @@ services:
       RULE_ENGINE_API_URL: http://iot-rule-engine:${SPRING_INTERNAL_PORT}
       CONTROLLER_API_URL: http://iot-controller:${SPRING_INTERNAL_PORT}
       ANALYTICS_API_URL: http://iot-analytics:${SPRING_INTERNAL_PORT}
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEM_LIMIT}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -130,11 +154,17 @@ services:
         SERVICE_NAME: iot-data-simulator
     image: iot-data-simulator:latest
     container_name: iot-data-simulator
+    stop_grace_period: 30s
+    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${SIMULATOR_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env ]
       CONTROLLER_URL: http://iot-controller:${SPRING_INTERNAL_PORT}/api/ingest
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEM_LIMIT}
     depends_on:
       iot-controller:
         condition: service_started
@@ -147,6 +177,9 @@ services:
     <<: *base-service
     image: mongo:${MONGO_VERSION}
     container_name: mongodb
+    stop_grace_period: 30s
+    mem_limit: ${MONGO_MEM_LIMIT}
+    mem_reservation: ${MONGO_MEM_RESERVATION}
     ports:
       - "${MONGO_PORT}:${MONGO_INTERNAL_PORT}"
     environment:
@@ -155,6 +188,13 @@ services:
       MONGO_INITDB_DATABASE: ${MONGO_DB}
     volumes:
       - mongo_data:/data/db
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEM_LIMIT}
+        reservations:
+          memory: ${MONGO_MEM_RESERVATION}
+    command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
     healthcheck:
       test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 10s
@@ -165,6 +205,8 @@ services:
     <<: *base-service
     image: rabbitmq:${RABBIT_VERSION}
     container_name: rabbitmq
+    stop_grace_period: 30s
+    mem_limit: ${RABBIT_MEM_LIMIT}
     ports:
       - "${RABBIT_MQ_PORT}:${RABBIT_INTERNAL_MQ_PORT}"
       - "${RABBIT_MGMT_PORT}:${RABBIT_INTERNAL_MGMT_PORT}"
@@ -173,7 +215,9 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
     command: >
-      sh -c "rabbitmq-plugins enable rabbitmq_web_stomp && rabbitmq-server"
+      sh -c "rabbitmq-plugins enable rabbitmq_web_stomp && rabbitmq-server & sleep 15; 
+                   rabbitmqctl set_policy GlobalLazy '.*' '{\"queue-mode\":\"lazy\"}' --apply-to queues; 
+                   wait"
     healthcheck:
       test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
       interval: 5s
@@ -186,6 +230,7 @@ services:
     <<: *base-service
     image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
     container_name: elasticsearch
+    mem_limit: ${ES_MEM_LIMIT}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -194,6 +239,10 @@ services:
       - "${ES_PORT}:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEM_LIMIT}
     healthcheck:
       test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q status" ]
       interval: 10s
@@ -209,6 +258,10 @@ services:
     volumes:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
       - ./elk/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${LS_MEM_LIMIT}
     environment:
       LS_JAVA_OPTS: ${LS_JAVA_OPTS}
     depends_on:
@@ -230,6 +283,11 @@ services:
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
       XPACK_SECURITY_ENABLED: "false"
+      NODE_OPTIONS: ${KIBANA_NODE_OPTIONS}
+    deploy:
+      resources:
+        limits:
+          memory: ${KIBANA_MEM_LIMIT}
     depends_on:
       elasticsearch:
         condition: service_healthy

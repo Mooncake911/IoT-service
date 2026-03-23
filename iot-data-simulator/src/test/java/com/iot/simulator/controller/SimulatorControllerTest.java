@@ -36,18 +36,18 @@ public class SimulatorControllerTest {
     @DisplayName("Should configure simulation with provided parameters")
     public void config_shouldCallConfigure() {
         int deviceCount = 20;
-        int messagesPerSecond = 5;
+        int frequencySeconds = 5;
 
         webTestClient.post()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/simulator/config")
                         .queryParam("deviceCount", deviceCount)
-                        .queryParam("messagesPerSecond", messagesPerSecond)
+                        .queryParam("frequencySeconds", frequencySeconds)
                         .build())
                 .exchange()
                 .expectStatus().isOk();
 
-        verify(simulationService).configure(deviceCount, messagesPerSecond);
+        verify(simulationService).configure(deviceCount, frequencySeconds);
     }
 
     @Test

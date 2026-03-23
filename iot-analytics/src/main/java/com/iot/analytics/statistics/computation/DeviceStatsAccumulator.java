@@ -117,7 +117,9 @@ public class DeviceStatsAccumulator {
     }
 
     private void acceptType(Type type) {
-        devicesByType.merge(type, 1L, Long::sum);
+        if (type != null) {
+            devicesByType.merge(type, 1L, Long::sum);
+        }
     }
 
     private void acceptManufacturer(String manufacturer) {

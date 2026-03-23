@@ -23,6 +23,9 @@ public class IngestionService {
     @Value("${app.rabbitmq.exchange.data}")
     private String dataExchangeName;
 
+    @Value("${app.rabbitmq.chunk-size}")
+    private int publishChunkSize;
+
     public IngestionService(DeviceDataRepository repository, RabbitTemplate rabbitTemplate) {
         this.repository = repository;
         this.rabbitTemplate = rabbitTemplate;
@@ -34,7 +37,14 @@ public class IngestionService {
             return toEntity(deviceData);
         }).flatMap(entity -> repository.save(entity)
                 .flatMap(savedEntity -> Mono
-                        .fromRunnable(() -> rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData))
+                        .fromRunnable(() -> {
+                            try {
+                                rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData);
+                            } catch (Exception e) {
+                                log.error("Failed to publish device {} to RabbitMQ: {}", deviceData.id(),
+                                        e.getMessage());
+                            }
+                        })
                         .subscribeOn(Schedulers.boundedElastic())
                         .thenReturn(savedEntity))
                 .doOnSuccess(saved -> log.debug("Data ingested for device {}", deviceData.id()))
@@ -46,13 +56,24 @@ public class IngestionService {
         return Mono.fromCallable(() -> {
             deviceData.forEach(this::validateDevice);
             return deviceData.stream().map(this::toEntity).toList();
-        }).flatMap(entities -> repository.saveAll(entities).collectList()
-                .flatMap(savedEntities -> Mono
-                        .fromRunnable(() -> rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData))
+        }).flatMap(entities -> repository.saveAll(entities)
+                .then(Mono.fromRunnable(() -> publishInChunks(deviceData))
                         .subscribeOn(Schedulers.boundedElastic()))
                 .doOnSuccess(saved -> log.info("Batch ingested: size={}", deviceData.size()))
                 .doOnError(error -> log.error("Failed to ingest batch: {}", error.getMessage())))
                 .then();
+    }
+
+    private void publishInChunks(List<DeviceData> deviceData) {
+        for (int i = 0; i < deviceData.size(); i += publishChunkSize) {
+            List<DeviceData> chunk = deviceData.subList(i, Math.min(i + publishChunkSize, deviceData.size()));
+            try {
+                rabbitTemplate.convertAndSend(dataExchangeName, "", chunk);
+            } catch (Exception e) {
+                log.error("Failed to publish chunk [{}-{}] to RabbitMQ: {}",
+                        i, Math.min(i + publishChunkSize, deviceData.size()), e.getMessage());
+            }
+        }
     }
 
     private DeviceEntity toEntity(DeviceData deviceData) {

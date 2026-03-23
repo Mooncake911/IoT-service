@@ -5,7 +5,6 @@ import com.iot.shared.domain.DeviceData;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -17,8 +16,15 @@ public class AmqpConsumerTest {
     @Mock
     private RuleEngine ruleEngine;
 
-    @InjectMocks
+    @Mock
+    private AlertPublisher alertPublisher;
+
     private AmqpConsumer consumer;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        consumer = new AmqpConsumer(ruleEngine, alertPublisher, 500, 500, 1024, 8);
+    }
 
     @Test
     @DisplayName("Should forward consumed device to Rule Engine")

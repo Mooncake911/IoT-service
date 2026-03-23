@@ -1,12 +1,16 @@
 server:
-  port: ${SPRING_SERVER_PORT}
+  port: ${SPRING_SERVER_PORT:8080}
+  shutdown: graceful
 
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
   rabbitmq:
-    port: ${RABBIT_MQ_PORT}
-    host: ${RABBIT_HOST}
-    username: ${RABBIT_USER}
-    password: ${RABBIT_PASS}
+    x-queue-mode: lazy
+    port: ${RABBIT_MQ_PORT:5672}
+    host: ${RABBIT_HOST:localhost}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
 
 management:
   endpoints:
@@ -19,6 +23,7 @@ management:
 
 app:
   rabbitmq:
+    chunk-size: ${APP_BATCH_SIZE:500}
     exchange:
       data: iot.data.exchange
       analytics: analytics.exchange

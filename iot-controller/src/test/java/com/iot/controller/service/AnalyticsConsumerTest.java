@@ -1,44 +1,51 @@
 package com.iot.controller.service;
 
-import com.iot.controller.domain.AnalyticsEntity;
 import com.iot.controller.repository.AnalyticsDataRepository;
 import com.iot.shared.domain.AnalyticsData;
-import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("Analytics Consumer Communication Test")
 public class AnalyticsConsumerTest {
 
     @Mock
     private AnalyticsDataRepository repository;
 
-    @InjectMocks
     private AnalyticsConsumer consumer;
 
+    @BeforeEach
+    void setUp() {
+        consumer = new AnalyticsConsumer(repository, 2, 1000, 10, 1);
+    }
+
     @Test
-    @DisplayName("Should receive analytics data and save it to repository")
-    void consumeAnalyticsData_shouldSaveToRepo() {
+    void consumeAnalytics_shouldBatchSaves() throws InterruptedException {
         // Arrange
-        AnalyticsData data = new AnalyticsData(1L, Instant.now(), Map.of("temp", 25.0));
-        when(repository.save(any(AnalyticsEntity.class))).thenReturn(Mono.empty());
+        AnalyticsData data1 = new AnalyticsData(1L, Instant.now(), Map.of("cpu", 10.0));
+        AnalyticsData data2 = new AnalyticsData(2L, Instant.now(), Map.of("cpu", 20.0));
+
+        List<AnalyticsData> incomingBatch = List.of(data1, data2);
+
+        when(repository.saveAll(anyList())).thenReturn(Flux.empty());
 
         // Act
-        consumer.consumeAnalyticsData(data);
+        consumer.consumeAnalytics(incomingBatch);
 
-        // Assert
-        verify(repository).save(any(AnalyticsEntity.class));
+        // Assert - wait a bit for the reactive pipeline to process
+        // Since batch size is 2, it should trigger immediately
+        Thread.sleep(100);
+
+        verify(repository, times(1)).saveAll(anyList());
     }
 }

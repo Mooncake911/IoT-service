@@ -51,19 +51,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: iot-dashboard/package-lock.json
 
       - name: Install dashboard dependencies
-        run: uv sync --frozen --no-dev
+        run: npm ci
 
       - name: Build dashboard package
-        run: uv build
+        run: npm run build
 
   client-test:
     name: Client Test (Dashboard)
@@ -75,16 +74,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: iot-dashboard/package-lock.json
 
       - name: Install dashboard dependencies (with dev)
-        run: uv sync --frozen
+        run: npm ci
 
       - name: Run dashboard tests
-        run: uv run pytest -q
+        run: npm run test --if-present

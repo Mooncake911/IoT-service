@@ -1,45 +1,47 @@
+server:
+  port: ${SPRING_SERVER_PORT:${CONTROLLER_PORT:8082}}
+  shutdown: graceful
+
 spring:
   main:
     banner-mode: console
-  config:
-    import:
-      - optional:classpath:application-common.yml
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
   codec:
     max-in-memory-size: 10MB
   data:
     mongodb:
-      uri: ${MONGO_URI:mongodb://admin:admin@localhost:27017/iot_db?authSource=admin}
+      uri: ${MONGO_CONTROLLER_URI:mongodb://admin:admin@localhost:27017/iot_db_controller?authSource=admin}
   rabbitmq:
+    port: ${RABBIT_MQ_PORT:5672}
+    host: ${RABBIT_HOST:localhost}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
     publisher-confirm-type: correlated
     publisher-returns: true
     template:
       mandatory: true
-    listener:
-      simple:
-        prefetch: 1
-        concurrency: 4
-        max-concurrency: 10
+      retry:
+        enabled: true
+        initial-interval: 1000ms
+        max-attempts: 3
+        max-interval: 10000ms
+        multiplier: 2.0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
 
 app:
-  rabbitmq:
-    analytics:
-      queue:
-        name: analytics.queue
-      batching:
-        size: ${APP_BATCH_SIZE:500}
-        timeout-ms: 1000
-        buffer-limit: 10000
-        concurrency: 2
-    alerts:
-      queue:
-        name: alerts.queue
-      batching:
-        size: ${APP_BATCH_SIZE:500}
-        timeout-ms: 1000
-        buffer-limit: 10000
-        concurrency: 4
   mongodb:
     collection:
       devices: devices
-      analytics: analytics
-      alerts: alerts
+  rabbitmq:
+    chunk-size: 500
+    exchange:
+      data: iot.data.exchange

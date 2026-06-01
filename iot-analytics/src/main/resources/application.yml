@@ -1,31 +1,47 @@
+server:
+  port: ${SPRING_SERVER_PORT:${ANALYTICS_PORT:8083}}
+  shutdown: graceful
+
 spring:
   main:
     banner-mode: console
-  config:
-    import:
-      - optional:classpath:application-common.yml
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
+  data:
+    mongodb:
+      uri: ${MONGO_ANALYTICS_URI:mongodb://admin:admin@localhost:27018/iot_analytics_db?authSource=admin}
   rabbitmq:
+    x-queue-mode: lazy
+    port: ${RABBIT_MQ_PORT:5672}
+    host: ${RABBIT_HOST:localhost}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
     publisher-confirm-type: correlated
     publisher-returns: true
     template:
       mandatory: true
-    listener:
-      simple:
-        prefetch: 1
-        concurrency: 4
-        max-concurrency: 10
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
 
 app:
   rabbitmq:
+    chunk-size: 500
+    exchange:
+      data: iot.data.exchange
     analytics:
       queue:
         name: iot-analytics.queue
         ttl: 60000
       batching:
-        size: ${APP_BATCH_SIZE:500}
         timeout-ms: 1000
-        buffer-limit: 10000
         concurrency: 8
   analytics:
-    default-method: Sequential
-    default-batch-size: ${APP_BATCH_SIZE:500}
+    default-method: Parallel
+    default-batch-size: 500

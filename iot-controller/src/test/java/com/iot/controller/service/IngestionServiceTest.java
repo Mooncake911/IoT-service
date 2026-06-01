@@ -1,22 +1,30 @@
 package com.iot.controller.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iot.contracts.domain.DeviceData;
+import com.iot.contracts.domain.components.Location;
+import com.iot.contracts.domain.components.Status;
+import com.iot.contracts.domain.components.Type;
 import com.iot.controller.domain.DeviceEntity;
 import com.iot.controller.repository.DeviceDataRepository;
-import com.iot.shared.domain.DeviceData;
-import com.iot.shared.domain.components.Type;
+import com.iot.controller.validation.DeviceValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.rabbitmq.Sender;
 import reactor.test.StepVerifier;
 
+import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,50 +34,61 @@ public class IngestionServiceTest {
     private DeviceDataRepository repository;
 
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private Sender sender;
 
-    @InjectMocks
+    @Mock
+    private DeviceValidator validator;
+
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+
     private IngestionService ingestionService;
 
     @BeforeEach
     public void setUp() {
+        ingestionService = new IngestionService(repository, sender, validator, objectMapper);
         ReflectionTestUtils.setField(ingestionService, "dataExchangeName", "iot.data.exchange");
         ReflectionTestUtils.setField(ingestionService, "publishChunkSize", 50);
     }
 
     @Test
-    @DisplayName("Should save to Mongo and publish to RabbitMQ")
-    public void ingestData_shouldSaveAndPublish() {
+    @DisplayName("Should save batch to Mongo and publish to RabbitMQ via Sender")
+    public void ingestBatch_shouldSaveAndPublish() {
         // Arrange
-        DeviceData deviceData = new DeviceData(123L, "Test Device", null, Type.CAMERA,
-                Collections.singletonList("temp"), null,
-                null);
+        DeviceData deviceData = DeviceData.builder()
+                .id(123L)
+                .name("Test Device")
+                .manufacturer("Acme")
+                .type(Type.SENSOR_TEMPERATURE)
+                .capabilities(Collections.singletonList("temp"))
+                .location(new Location(1, 2, 0))
+                .status(new Status(true, 80, 70, Instant.now()))
+                .build();
 
-        DeviceEntity savedEntity = new DeviceEntity(
-                "mongo-id-1",
+        DeviceEntity entity = new DeviceEntity(
+                null,
                 123L,
                 "Test Device",
-                null,
-                Type.CAMERA,
+                "Acme",
+                Type.SENSOR_TEMPERATURE,
                 Collections.singletonList("temp"),
-                null,
-                null,
-                null);
+                new Location(1, 2, 0),
+                new Status(true, 80, 70, Instant.now()),
+                Instant.now());
 
-        when(repository.save(any(DeviceEntity.class))).thenReturn(Mono.just(savedEntity));
+        when(repository.saveAll(any(List.class))).thenReturn(Flux.just(entity));
+        when(sender.send(any(Flux.class))).thenReturn(Mono.empty());
 
         // Act
-        Mono<DeviceEntity> result = ingestionService.ingestData(deviceData);
+        Mono<Void> result = ingestionService.ingestBatch(Collections.singletonList(deviceData));
 
         // Assert
         StepVerifier.create(result)
-                .expectNext(savedEntity)
                 .verifyComplete();
 
-        // Verify repository save called
-        verify(repository).save(any(DeviceEntity.class));
+        // Verify repository batch save called
+        verify(repository).saveAll(any(List.class));
 
-        // Verify RabbitMQ publish
-        verify(rabbitTemplate, timeout(1000)).convertAndSend(eq("iot.data.exchange"), eq(""), eq(deviceData));
+        // Verify RabbitMQ publish via sender
+        verify(sender, timeout(1000)).send(any(Flux.class));
     }
 }

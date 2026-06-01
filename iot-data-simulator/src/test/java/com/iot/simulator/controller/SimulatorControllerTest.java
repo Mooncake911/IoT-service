@@ -1,7 +1,9 @@
 package com.iot.simulator.controller;
 
 import com.iot.simulator.service.SimulationService;
+
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -9,7 +11,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import reactor.core.publisher.Mono;
-import org.junit.jupiter.api.BeforeEach;
 
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.verify;
@@ -30,6 +31,10 @@ public class SimulatorControllerTest {
         when(simulationService.configure(anyInt(), anyInt())).thenReturn(Mono.empty());
         when(simulationService.start()).thenReturn(Mono.empty());
         when(simulationService.stop()).thenReturn(Mono.empty());
+        when(simulationService.isRunning()).thenReturn(true);
+        when(simulationService.getDeviceCount()).thenReturn(20);
+        when(simulationService.getFrequencySeconds()).thenReturn(5);
+        when(simulationService.getBatchSize()).thenReturn(10);
     }
 
     @Test
@@ -71,4 +76,19 @@ public class SimulatorControllerTest {
 
         verify(simulationService).stop();
     }
+
+    @Test
+    @DisplayName("Should return simulation status")
+    public void status_shouldReturnStatus() {
+        webTestClient.get()
+                .uri("/api/simulator/status")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.running").isEqualTo(true)
+                .jsonPath("$.deviceCount").isEqualTo(20)
+                .jsonPath("$.frequencySeconds").isEqualTo(5)
+                .jsonPath("$.batchSize").isEqualTo(10);
+    }
 }
+

@@ -1,8 +1,23 @@
+server:
+  port: ${SPRING_SERVER_PORT:${SIMULATOR_PORT:8081}}
+  shutdown: graceful
+
 spring:
   main:
     banner-mode: console
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
 
-analytics:
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+controller:
   url: ${CONTROLLER_URL}
 
 app:

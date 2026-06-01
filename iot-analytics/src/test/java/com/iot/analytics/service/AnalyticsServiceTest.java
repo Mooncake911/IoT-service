@@ -1,7 +1,7 @@
 package com.iot.analytics.service;
 
-import com.iot.shared.domain.DeviceData;
-import com.iot.shared.domain.components.Type;
+import com.iot.contracts.domain.DeviceData;
+import com.iot.contracts.domain.components.Type;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

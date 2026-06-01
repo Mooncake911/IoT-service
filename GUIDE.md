@@ -1,152 +1,188 @@
-# Руководство по проверке работоспособности IoT системы
+# Руководство по проверке IoT-системы
 
-Данный документ содержит пошаговую инструкцию по запуску и проверке всех компонентов системы в среде Windows.
+Актуально для сервисов: `iot-data-simulator`, `iot-controller`, `iot-analytics`, `iot-alerts`, `iot-data-gateway`, `iot-dashboard`.
 
----
+## 1. Режимы запуска
 
-## 1. Подготовка и запуск
-Убедитесь, что у вас установлен Docker Desktop.
-
-1. Откройте терминал (PowerShell или CMD) в корне проекта.
-2. Запустите систему:
-   ```powershell
-   docker-compose up -d --build
-   ```
-3. Проверьте, что все контейнеры поднялись:
-   ```powershell
-   docker ps
-   ```
-   
-   **Важно:** Если какой-то контейнер не запустился (статус `Exited`), проверьте логи:
-   ```powershell
-   docker logs <имя-контейнера>
-   ```
-   
-   Например, для симулятора:
-   ```powershell
-   docker logs iot-data-simulator
-   ```
-
----
-
-## 2. Использование Симулятора (iot-data-simulator)
-Симулятор позволяет генерировать поток данных автоматически.
-
-### 2.1 Настройка параметров
-Установим 10 устройств и 1 сообщение в секунду:
+### Core (быстрый локальный режим)
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/simulator/config?deviceCount=10&messagesPerSecond=1" -Method Post
+docker compose up -d --build
+docker compose ps
 ```
 
-### 2.2 Запуск симуляции
+### Core + Observability (ELK + Prometheus + Grafana)
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/simulator/start" -Method Post
+$env:SPRING_PROFILES="docker,elk"
+docker compose --profile observability up -d --build
+docker compose --profile observability ps
 ```
 
-### 2.3 Проверка статуса
+Остановить всё:
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/simulator/status" -Method Get
+docker compose down
 ```
 
-### 2.4 Остановка симуляции
+Полная очистка с volume:
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/simulator/stop" -Method Post
+docker compose down -v
 ```
 
----
+## 2. Куда заходить (UI/HTTP)
 
-## 3. Ручная отправка данных (iot-controller)
-Если вы хотите проверить обработку конкретного пакета данных вручную.
+- Dashboard UI (Flet): `http://localhost:8501`
+- Gateway: `http://localhost:8085`
+- Simulator: `http://localhost:8081`
+- Controller: `http://localhost:8082`
+- Analytics: `http://localhost:8083`
+- Alerts: `http://localhost:8084`
+- RabbitMQ Management UI: `http://localhost:15672`
+- Prometheus (observability): `http://localhost:9090`
+- Grafana (observability): `http://localhost:3000`
+- Kibana (observability): `http://localhost:5601`
 
+## 3. RabbitMQ: как смотреть очереди
+
+### Через веб-интерфейс
+1. Открыть `http://localhost:15672`
+2. Логин/пароль: значения из `.env` (`RABBIT_USER` / `RABBIT_PASS`, обычно `guest/guest`)
+3. Перейти в раздел `Queues and Streams`
+4. Смотреть:
+   - `Ready` — ждут обработки
+   - `Unacked` — доставлены, но не подтверждены consumer’ом
+   - `Total` — суммарный размер очереди
+
+### Через команду из контейнера
 ```powershell
-$json = '[{"id": 42, "status": {"batteryLevel": 15, "signalStrength": 5, "online": true}, "timestamp": "2026-01-12T12:00:00Z"}]'
-Invoke-RestMethod -Uri "http://localhost:8082/api/ingest" -Method Post -Body $json -ContentType "application/json"
+docker exec -it rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
 ```
 
----
-
-## 4. Настройка Аналитики (iot-analytics)
-Сервис аналитики агрегирует данные и считает статистику.
-
-### 4.1 Изменение метода расчета
-Доступные методы: `Sequential`, `Flowable`, `Observable`, `CustomCollector` и др.
+Проверить общую диагностику:
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8081/api/analytics/config?method=Flowable&batchSize=20" -Method Post
+docker exec -it rabbitmq rabbitmq-diagnostics -q check_running
 ```
 
-### 4.2 Проверка текущей конфигурации
+## 4. Базовый E2E сценарий
+
+Настроить analytics (метод и batch size):
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8081/api/analytics/status" -Method Get
+# method: Sequential | Parallel
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/config?method=Parallel&batchSize=50" -Method Post
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/status" -Method Get
 ```
 
----
-
-## 5. Проверка результатов
-
-### 5.1 MongoDB (Хранение данных и алертов)
-Используйте **MongoDB Compass** или командную строку для проверки коллекций в базе `iot_db`:
-- `devices` — входящие пакеты.
-- `alerts` — сработавшие правила от **Rule Engine**.
-- `analytics` — результаты работы **Analytics Service**.
-
-### 5.2 Rule Engine (Проверка правил)
-Чтобы проверить срабатывание правил:
-1. **Мгновенное правило (Low Battery):** Отправьте данные с `batteryLevel < 20` (см. пункт 3). В коллекции `alerts` должен появиться документ с `ruleId: "LOW_BATTERY"`.
-2. **Длящееся правило (Sustained Low Signal):** Запустите симулятор с низким сигналом или отправьте 10 пакетов подряд с `signalStrength < 30`. В коллекции `alerts` появится `SUSTAINED_LOW_SIGNAL`.
-
-### 5.3 ELK Stack (Логи)
-1. Откройте **Kibana**: [http://localhost:5601](http://localhost:5601)
-2. Перейдите в **Stack Management** -> **Data Views**.
-3. Создайте паттерн `logs-*`.
-4. Перейдите в **Discover** для просмотра логов в реальном времени.
-
-### 5.4 Мониторинг (Метрики)
-- **Grafana**: [http://localhost:3000](http://localhost:3000) (Login: `admin` / `admin`).
-- **Prometheus**: [http://localhost:9090](http://localhost:9090).
-
----
-
-## 6. Диагностика проблем
-
-### 6.1 Контейнер не запускается
-Если контейнер завершается с ошибкой (`Exited (1)`), проверьте логи:
+Настроить simulator:
 ```powershell
-docker logs <имя-контейнера>
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/config?deviceCount=10&frequencySeconds=1" -Method Post
 ```
 
-### 6.2 Сервис недоступен по порту
-1. Убедитесь, что контейнер запущен: `docker ps`
-2. Проверьте, что порт не занят другим процессом
-3. Проверьте логи контейнера на наличие ошибок запуска
-4. Убедитесь, что переменные окружения установлены корректно (если используется `.env` файл)
-
-### 6.3 Пересборка конкретного сервиса
-Если нужно пересобрать только один сервис:
+Запустить simulator:
 ```powershell
-docker-compose up -d --build <имя-сервиса>
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/start" -Method Post
 ```
 
-Например, для симулятора:
+Проверить статус simulator:
 ```powershell
-docker-compose up -d --build iot-data-simulator
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/status" -Method Get
 ```
 
----
+Проверить analytics:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/status" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/history?limit=20" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/summary" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/by-type" -Method Get
+$to = [DateTime]::UtcNow
+$from = $to.AddMinutes(-10)
+$fromIso = $from.ToString("yyyy-MM-ddTHH:mm:ssZ")
+$toIso = $to.ToString("yyyy-MM-ddTHH:mm:ssZ")
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/report/window?from=$fromIso&to=$toIso" -Method Get
+```
 
-## 7. Полезные команды Docker (Windows)
-- Посмотреть последние 50 строк логов сервиса:
-  ```powershell
-  docker logs --tail 50 iot-controller
-  ```
-- Посмотреть все контейнеры (включая остановленные):
-  ```powershell
-  docker ps -a
-  ```
-- Остановить и удалить всё:
-  ```powershell
-  docker-compose down -v
-  ```
-- Перезапустить конкретный сервис:
-  ```powershell
-  docker-compose restart iot-data-simulator
-  ```
+Проверить alerts:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts?limit=20" -Method Get
+```
+
+Проверить CRUD правил alerts:
+```powershell
+$rule = @{
+  name = "low-battery-cooldown"
+  type = "DURATION"
+  severity = "WARNING"
+  field = "BATTERY_LEVEL"
+  operator = "LT"
+  thresholdNumber = 20
+  requiredPackets = 3
+  cooldownSeconds = 30
+  enabled = $true
+} | ConvertTo-Json
+
+$created = Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts/rules" -Method Post -Body $rule -ContentType "application/json"
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts/rules" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts/rules/$($created.id)" -Method Delete
+```
+
+Остановить simulator:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/stop" -Method Post
+```
+
+## 5. Проверка controller через gateway
+
+Внешний путь в gateway: `POST /api/v1/controller`  
+Внутренний путь controller: `POST /api/ingest`
+
+```powershell
+$json = '[{"id":42,"name":"device-42","manufacturer":"acme","type":"SENSOR_TEMPERATURE","capabilities":["temp"],"location":{"x":1,"y":2,"z":0},"status":{"isOnline":true,"batteryLevel":15,"signalStrength":5,"lastHeartbeat":"2026-01-12T12:00:00Z"}}]'
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/controller" -Method Post -Body $json -ContentType "application/json"
+```
+
+## 6. Базы данных
+
+- Mongo controller: `localhost:27017`
+- Mongo analytics: `localhost:27018`
+- Mongo alerts: `localhost:27019`
+
+## 7. Метрики и логи (observability)
+
+- Prometheus targets: `http://localhost:9090/targets`
+- Java метрики: `/actuator/prometheus`
+- RabbitMQ метрики: `http://localhost:15692/metrics`
+- Gateway API docs links: `http://localhost:8085/api/docs`
+- Kibana индекс логов: `logs-*`
+- Elasticsearch health: `http://localhost:9200/_cluster/health`
+
+## 8. Диагностика
+
+Логи сервиса:
+```powershell
+docker compose logs -f iot-controller
+```
+
+Логи logstash:
+```powershell
+docker compose --profile observability logs -f logstash
+```
+
+Быстрая проверка ELK:
+```powershell
+docker compose --profile observability ps
+Invoke-RestMethod -Uri "http://localhost:9200/_cluster/health" -Method Get
+Invoke-RestMethod -Uri "http://localhost:5601/api/status" -Headers @{ "kbn-xsrf" = "true" } -Method Get
+```
+
+Если контейнер не поднялся:
+```powershell
+docker logs <container_name>
+```
+
+## 9. Smoke-check
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
+```
+
+Smoke-check теперь валидирует не только ingest/history/alerts, но и новые ручки:
+- `/api/v1/analytics/live/summary`
+- `/api/v1/analytics/live/by-type`
+- `/api/v1/analytics/report/window`

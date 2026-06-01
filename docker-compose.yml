@@ -3,6 +3,11 @@
 x-base-service: &base-service
   networks:
     - iot-network
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
 
 x-java-env: &java-env
   JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS}
@@ -19,18 +24,45 @@ x-rabbitmq-env: &rabbitmq-env
   RABBIT_MQ_PORT: ${RABBIT_INTERNAL_MQ_PORT}
   RABBIT_MGMT_PORT: ${RABBIT_INTERNAL_MGMT_PORT}
   RABBIT_STOMP_PORT: ${RABBIT_INTERNAL_STOMP_PORT}
-
-x-mongodb-env: &mongodb-env
-  MONGO_USER: ${MONGO_USER}
-  MONGO_PASS: ${MONGO_PASS}
-  MONGO_HOST: ${MONGO_HOST}
-  MONGO_DB: ${MONGO_DB}
-  MONGO_PORT: ${MONGO_INTERNAL_PORT}
-  MONGO_URI: ${MONGO_URI}
+  RABBIT_PROM_PORT: ${RABBIT_INTERNAL_PROM_PORT}
 
 # --- СЕРВИСЫ ---
 
 services:
+  iot-data-gateway:
+    <<: *base-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: iot-data-gateway
+      args:
+        SERVICE_NAME: iot-data-gateway
+    image: iot-data-gateway:latest
+    container_name: iot-data-gateway
+    ports:
+      - "${GATEWAY_PORT}:${SPRING_INTERNAL_PORT}"
+    environment:
+      <<: [ *java-env, *spring-env ]
+      ANALYTICS_URL: http://iot-analytics:${SPRING_INTERNAL_PORT}
+      ALERTS_URL: http://iot-alerts:${SPRING_INTERNAL_PORT}
+      SIMULATOR_URL: http://iot-data-simulator:${SPRING_INTERNAL_PORT}
+      CONTROLLER_URL: http://iot-controller:${SPRING_INTERNAL_PORT}
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      iot-controller:
+        condition: service_healthy
+      iot-analytics:
+        condition: service_healthy
+      iot-alerts:
+        condition: service_healthy
+      iot-data-simulator:
+        condition: service_healthy
+
   iot-analytics:
     <<: *base-service
     build:
@@ -42,19 +74,21 @@ services:
     image: iot-analytics:latest
     container_name: iot-analytics
     stop_grace_period: 30s
-    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${ANALYTICS_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
-    deploy:
-      resources:
-        limits:
-          memory: ${APP_MEM_LIMIT}
+      MONGO_ANALYTICS_URI: ${MONGO_ANALYTICS_URI}
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     depends_on:
-      rabbitmq:
+      mongodb-analytics:
         condition: service_healthy
-      logstash:
+      rabbitmq:
         condition: service_healthy
 
   iot-controller:
@@ -68,81 +102,50 @@ services:
     image: iot-controller:latest
     container_name: iot-controller
     stop_grace_period: 30s
-    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${CONTROLLER_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
-      <<: [ *java-env, *spring-env, *rabbitmq-env, *mongodb-env ]
-    deploy:
-      resources:
-        limits:
-          memory: ${APP_MEM_LIMIT}
+      <<: [ *java-env, *spring-env, *rabbitmq-env ]
+      MONGO_CONTROLLER_URI: ${MONGO_CONTROLLER_URI}
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     depends_on:
-      mongodb:
+      mongodb-controller:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
 
-  iot-rule-engine:
+  iot-alerts:
     <<: *base-service
     build:
       context: .
       dockerfile: Dockerfile
-      target: iot-rule-engine
+      target: iot-alerts
       args:
-        SERVICE_NAME: iot-rule-engine
-    image: iot-rule-engine:latest
-    container_name: iot-rule-engine
+        SERVICE_NAME: iot-alerts
+    image: iot-alerts:latest
+    container_name: iot-alerts
     stop_grace_period: 30s
-    mem_limit: ${APP_MEM_LIMIT}
     ports:
-      - "${RULE_ENGINE_PORT}:${SPRING_INTERNAL_PORT}"
+      - "${ALERTS_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
-    deploy:
-      resources:
-        limits:
-          memory: ${APP_MEM_LIMIT}
+      MONGO_ALERTS_URI: ${MONGO_ALERTS_URI}
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     depends_on:
+      mongodb-alerts:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      logstash:
-        condition: service_healthy
-
-  iot-dashboard:
-    <<: *base-service
-    build:
-      context: ./iot-dashboard
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: iot-dashboard
-    image: iot-dashboard:latest
-    container_name: iot-dashboard
-    stop_grace_period: 30s
-    mem_limit: ${APP_MEM_LIMIT}
-    ports:
-      - "${DASHBOARD_PORT}:8501"
-    environment:
-      <<: [ *mongodb-env ]
-      SIMULATOR_API_URL: http://iot-data-simulator:${SPRING_INTERNAL_PORT}
-      RULE_ENGINE_API_URL: http://iot-rule-engine:${SPRING_INTERNAL_PORT}
-      CONTROLLER_API_URL: http://iot-controller:${SPRING_INTERNAL_PORT}
-      ANALYTICS_API_URL: http://iot-analytics:${SPRING_INTERNAL_PORT}
-    deploy:
-      resources:
-        limits:
-          memory: ${APP_MEM_LIMIT}
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      iot-controller:
-        condition: service_started
-      iot-analytics:
-        condition: service_started
-      iot-data-simulator:
-        condition: service_started
 
   iot-data-simulator:
     <<: *base-service
@@ -155,45 +158,93 @@ services:
     image: iot-data-simulator:latest
     container_name: iot-data-simulator
     stop_grace_period: 30s
-    mem_limit: ${APP_MEM_LIMIT}
     ports:
       - "${SIMULATOR_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env ]
       CONTROLLER_URL: http://iot-controller:${SPRING_INTERNAL_PORT}/api/ingest
-    deploy:
-      resources:
-        limits:
-          memory: ${APP_MEM_LIMIT}
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     depends_on:
       iot-controller:
-        condition: service_started
-      logstash:
+        condition: service_healthy
+
+  iot-dashboard-ui:
+    <<: *base-service
+    build:
+      context: ./iot-dashboard
+      dockerfile: Dockerfile
+      target: dashboard-ui
+    image: iot-dashboard-ui:latest
+    container_name: iot-dashboard-ui
+    stop_grace_period: 30s
+    ports:
+      - "${DASHBOARD_UI_PORT}:8501"
+    environment:
+      GATEWAY_URL: http://iot-data-gateway:${SPRING_INTERNAL_PORT}
+    depends_on:
+      iot-data-gateway:
         condition: service_healthy
 
   # --- ИНФРАСТРУКТУРА ---
 
-  mongodb:
+  mongodb-controller:
     <<: *base-service
     image: mongo:${MONGO_VERSION}
-    container_name: mongodb
+    container_name: mongodb-controller
     stop_grace_period: 30s
-    mem_limit: ${MONGO_MEM_LIMIT}
-    mem_reservation: ${MONGO_MEM_RESERVATION}
     ports:
-      - "${MONGO_PORT}:${MONGO_INTERNAL_PORT}"
+      - "${MONGO_CONTROLLER_PORT}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
-      MONGO_INITDB_DATABASE: ${MONGO_DB}
+      MONGO_INITDB_DATABASE: ${MONGO_CONTROLLER_DB}
     volumes:
-      - mongo_data:/data/db
-    deploy:
-      resources:
-        limits:
-          memory: ${MONGO_MEM_LIMIT}
-        reservations:
-          memory: ${MONGO_MEM_RESERVATION}
+      - mongo_controller_data:/data/db
+    command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb-analytics:
+    <<: *base-service
+    image: mongo:${MONGO_VERSION}
+    container_name: mongodb-analytics
+    stop_grace_period: 30s
+    ports:
+      - "${MONGO_ANALYTICS_PORT}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+      MONGO_INITDB_DATABASE: ${MONGO_ANALYTICS_DB}
+    volumes:
+      - mongo_analytics_data:/data/db
+    command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb-alerts:
+    <<: *base-service
+    image: mongo:${MONGO_VERSION}
+    container_name: mongodb-alerts
+    stop_grace_period: 30s
+    ports:
+      - "${MONGO_ALERTS_PORT}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+      MONGO_INITDB_DATABASE: ${MONGO_ALERTS_DB}
+    volumes:
+      - mongo_alerts_data:/data/db
     command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
     healthcheck:
       test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
@@ -206,18 +257,24 @@ services:
     image: rabbitmq:${RABBIT_VERSION}
     container_name: rabbitmq
     stop_grace_period: 30s
-    mem_limit: ${RABBIT_MEM_LIMIT}
     ports:
       - "${RABBIT_MQ_PORT}:${RABBIT_INTERNAL_MQ_PORT}"
       - "${RABBIT_MGMT_PORT}:${RABBIT_INTERNAL_MGMT_PORT}"
       - "${RABBIT_STOMP_PORT}:${RABBIT_INTERNAL_STOMP_PORT}"
+      - "${RABBIT_PROM_PORT:-15692}:${RABBIT_INTERNAL_PROM_PORT:-15692}"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
-    command: >
-      sh -c "rabbitmq-plugins enable rabbitmq_web_stomp && rabbitmq-server & sleep 15; 
-                   rabbitmqctl set_policy GlobalLazy '.*' '{\"queue-mode\":\"lazy\"}' --apply-to queues; 
-                   wait"
+    volumes:
+      - ./monitoring/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    command: |-
+      sh -c '
+        rabbitmq-plugins enable rabbitmq_web_stomp rabbitmq_prometheus
+        rabbitmq-server &
+        sleep 15
+        rabbitmqctl set_policy GlobalLazy ".*" "{\"queue-mode\":\"lazy\"}" --apply-to queues
+        wait
+      '
     healthcheck:
       test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
       interval: 5s
@@ -228,13 +285,14 @@ services:
 
   elasticsearch:
     <<: *base-service
+    profiles: [ "observability" ]
     image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION}
     container_name: elasticsearch
-    mem_limit: ${ES_MEM_LIMIT}
     environment:
       discovery.type: single-node
-      xpack.security.enabled: "false"
+      xpack.security.enabled: ${ELASTIC_XPACK_SECURITY_ENABLED}
       ES_JAVA_OPTS: ${ES_JAVA_OPTS}
+    mem_limit: ${ES_MEM_LIMIT}
     ports:
       - "${ES_PORT}:9200"
     volumes:
@@ -251,8 +309,11 @@ services:
 
   logstash:
     <<: *base-service
+    profiles: [ "observability" ]
     image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION}
     container_name: logstash
+    environment:
+      LS_JAVA_OPTS: ${LS_JAVA_OPTS}
     ports:
       - "${LOGSTASH_PORT}:5044"
     volumes:
@@ -262,8 +323,6 @@ services:
       resources:
         limits:
           memory: ${LS_MEM_LIMIT}
-    environment:
-      LS_JAVA_OPTS: ${LS_JAVA_OPTS}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -276,14 +335,15 @@ services:
 
   kibana:
     <<: *base-service
+    profiles: [ "observability" ]
     image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION}
     container_name: kibana
-    ports:
-      - "${KIBANA_PORT}:5601"
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
-      XPACK_SECURITY_ENABLED: "false"
+      XPACK_SECURITY_ENABLED: ${ELASTIC_XPACK_SECURITY_ENABLED}
       NODE_OPTIONS: ${KIBANA_NODE_OPTIONS}
+    ports:
+      - "${KIBANA_PORT}:5601"
     deploy:
       resources:
         limits:
@@ -297,21 +357,37 @@ services:
       timeout: 5s
       retries: 20
 
+  elasticsearch-setup:
+    <<: *base-service
+    profiles: [ "observability" ]
+    image: curlimages/curl:8.10.1
+    container_name: elasticsearch-setup
+    command: [ "sh", "/setup/setup.sh" ]
+    volumes:
+      - ./elk/elasticsearch:/setup:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: on-failure
+
   kibana-setup:
     <<: *base-service
-    image: curlimages/curl:${CURL_VERSION}
+    profiles: [ "observability" ]
+    image: curlimages/curl:8.10.1
     container_name: kibana-setup
+    command: [ "sh", "/setup/setup.sh" ]
+    volumes:
+      - ./elk/kibana:/setup:ro
     depends_on:
       kibana:
         condition: service_healthy
     restart: on-failure
-    command: >
-      sh -c "sleep 15; curl -X POST 'http://kibana:5601/api/data_views/data_view' -H 'Content-Type: application/json' -H 'kbn-xsrf: true' -d '{\"data_view\": {\"title\": \"logs-*\", \"name\": \"Logs\", \"timeFieldName\": \"@timestamp\"}}'"
 
   # --- MONITORING ---
 
   prometheus:
     <<: *base-service
+    profiles: [ "observability" ]
     image: prom/prometheus:${PROMETHEUS_VERSION}
     container_name: prometheus
     ports:
@@ -325,13 +401,14 @@ services:
 
   grafana:
     <<: *base-service
+    profiles: [ "observability" ]
     image: grafana/grafana:${GRAFANA_VERSION}
     container_name: grafana
-    ports:
-      - "${GRAFANA_PORT}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    ports:
+      - "${GRAFANA_PORT}:3000"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
@@ -339,11 +416,12 @@ services:
       - prometheus
 
 volumes:
-  mongo_data:
+  mongo_controller_data:
+  mongo_analytics_data:
+  mongo_alerts_data:
   elasticsearch_data:
   prometheus_data:
   grafana_data:
-
 
 networks:
   iot-network:

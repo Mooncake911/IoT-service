@@ -1,0 +1,45 @@
+server:
+  port: ${SPRING_SERVER_PORT:${ALERTS_PORT:8084}}
+  shutdown: graceful
+
+spring:
+  main:
+    banner-mode: console
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
+  data:
+    mongodb:
+      uri: ${MONGO_ALERTS_URI:mongodb://admin:admin@localhost:27019/iot_alerts_db?authSource=admin}
+  rabbitmq:
+    x-queue-mode: lazy
+    port: ${RABBIT_MQ_PORT:5672}
+    host: ${RABBIT_HOST:localhost}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+app:
+  rabbitmq:
+    chunk-size: 500
+    exchange:
+      data: iot.data.exchange
+    alerts:
+      queue:
+        name: iot-alerts.queue
+        ttl: 60000
+      batching:
+        size: 500
+        timeout-ms: 1000
+        concurrency: 8

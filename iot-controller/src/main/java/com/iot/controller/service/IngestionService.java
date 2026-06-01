@@ -1,14 +1,17 @@
 package com.iot.controller.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.controller.domain.DeviceEntity;
 import com.iot.controller.repository.DeviceDataRepository;
-import com.iot.shared.domain.DeviceData;
+import com.iot.controller.validation.DeviceValidator;
+import com.iot.contracts.domain.DeviceData;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
+import reactor.rabbitmq.OutboundMessage;
+import reactor.rabbitmq.Sender;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,7 +21,9 @@ import java.util.List;
 public class IngestionService {
 
     private final DeviceDataRepository repository;
-    private final RabbitTemplate rabbitTemplate;
+    private final Sender sender;
+    private final DeviceValidator validator;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.rabbitmq.exchange.data}")
     private String dataExchangeName;
@@ -26,53 +31,37 @@ public class IngestionService {
     @Value("${app.rabbitmq.chunk-size}")
     private int publishChunkSize;
 
-    public IngestionService(DeviceDataRepository repository, RabbitTemplate rabbitTemplate) {
+    public IngestionService(DeviceDataRepository repository, Sender sender, DeviceValidator validator, ObjectMapper objectMapper) {
         this.repository = repository;
-        this.rabbitTemplate = rabbitTemplate;
-    }
-
-    public Mono<DeviceEntity> ingestData(DeviceData deviceData) {
-        return Mono.fromCallable(() -> {
-            validateDevice(deviceData);
-            return toEntity(deviceData);
-        }).flatMap(entity -> repository.save(entity)
-                .flatMap(savedEntity -> Mono
-                        .fromRunnable(() -> {
-                            try {
-                                rabbitTemplate.convertAndSend(dataExchangeName, "", deviceData);
-                            } catch (Exception e) {
-                                log.error("Failed to publish device {} to RabbitMQ: {}", deviceData.id(),
-                                        e.getMessage());
-                            }
-                        })
-                        .subscribeOn(Schedulers.boundedElastic())
-                        .thenReturn(savedEntity))
-                .doOnSuccess(saved -> log.debug("Data ingested for device {}", deviceData.id()))
-                .doOnError(error -> log.error("Failed to ingest data for device {}: {}", deviceData.id(),
-                        error.getMessage())));
+        this.sender = sender;
+        this.validator = validator;
+        this.objectMapper = objectMapper;
     }
 
     public Mono<Void> ingestBatch(List<DeviceData> deviceData) {
         return Mono.fromCallable(() -> {
-            deviceData.forEach(this::validateDevice);
+            deviceData.forEach(validator::validate);
             return deviceData.stream().map(this::toEntity).toList();
         }).flatMap(entities -> repository.saveAll(entities)
-                .then(Mono.fromRunnable(() -> publishInChunks(deviceData))
-                        .subscribeOn(Schedulers.boundedElastic()))
+                .then(publishInChunksReactive(deviceData))
                 .doOnSuccess(saved -> log.info("Batch ingested: size={}", deviceData.size()))
                 .doOnError(error -> log.error("Failed to ingest batch: {}", error.getMessage())))
                 .then();
     }
 
-    private void publishInChunks(List<DeviceData> deviceData) {
-        for (int i = 0; i < deviceData.size(); i += publishChunkSize) {
-            List<DeviceData> chunk = deviceData.subList(i, Math.min(i + publishChunkSize, deviceData.size()));
-            try {
-                rabbitTemplate.convertAndSend(dataExchangeName, "", chunk);
-            } catch (Exception e) {
-                log.error("Failed to publish chunk [{}-{}] to RabbitMQ: {}",
-                        i, Math.min(i + publishChunkSize, deviceData.size()), e.getMessage());
-            }
+    private Mono<Void> publishInChunksReactive(List<DeviceData> deviceData) {
+        return Flux.fromIterable(deviceData)
+                .map(data -> new OutboundMessage(dataExchangeName, "", serialize(data)))
+                .window(publishChunkSize)
+                .flatMap(chunk -> sender.send(chunk))
+                .then();
+    }
+
+    private byte[] serialize(Object obj) {
+        try {
+            return objectMapper.writeValueAsBytes(obj);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize message", e);
         }
     }
 
@@ -87,70 +76,5 @@ public class IngestionService {
                 deviceData.location(),
                 deviceData.status(),
                 Instant.now());
-    }
-
-    private void validateDevice(DeviceData deviceData) {
-        validateNotNull(deviceData, "Device");
-        validateNonNegative(deviceData.id(), "Device ID");
-        validateStringNotEmpty(deviceData.name(), "Device Name");
-
-        if (deviceData.status() != null) {
-            validateBatteryRange(deviceData.status().batteryLevel(), "Battery Level");
-            validateSignalRange(deviceData.status().signalStrength(), "Signal Strength");
-        }
-
-        validateLocation(deviceData.location());
-        validateCapabilities(deviceData.capabilities());
-    }
-
-    private void validateLocation(com.iot.shared.domain.components.Location location) {
-        if (location != null) {
-            if (Math.abs(location.x()) > 10000 || Math.abs(location.y()) > 10000) {
-                throw new IllegalArgumentException("Location coordinates out of range: " + location);
-            }
-        }
-    }
-
-    private void validateCapabilities(List<String> capabilities) {
-        if (capabilities != null) {
-            for (String cap : capabilities) {
-                if (cap == null || cap.trim().isEmpty()) {
-                    throw new IllegalArgumentException("Capability cannot be null or empty");
-                }
-            }
-            if (capabilities.size() > 50) {
-                throw new IllegalArgumentException("Too many capabilities: " + capabilities.size());
-            }
-        }
-    }
-
-    private void validateNonNegative(long value, String fieldName) {
-        if (value < 0) {
-            throw new IllegalArgumentException(fieldName + " cannot be negative: " + value);
-        }
-    }
-
-    private void validateBatteryRange(double value, String fieldName) {
-        if (value < 0 || value > 100) {
-            throw new IllegalArgumentException(fieldName + " must be between 0 and 100: " + value);
-        }
-    }
-
-    private void validateSignalRange(double value, String fieldName) {
-        if (value < 0 || value > 100) {
-            throw new IllegalArgumentException(fieldName + " must be between 0 and 100: " + value);
-        }
-    }
-
-    private void validateNotNull(Object value, String fieldName) {
-        if (value == null) {
-            throw new IllegalArgumentException(fieldName + " cannot be null");
-        }
-    }
-
-    private void validateStringNotEmpty(String value, String fieldName) {
-        if (value == null || value.trim().isEmpty()) {
-            throw new IllegalArgumentException(fieldName + " cannot be empty");
-        }
     }
 }

@@ -1,11 +1,14 @@
 package com.iot.controller.controller;
 
 import com.iot.controller.service.IngestionService;
-import com.iot.shared.domain.DeviceData;
+import com.iot.contracts.domain.DeviceData;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+
 import reactor.core.publisher.Mono;
 
 import java.util.List;

@@ -1,95 +1,116 @@
 package com.iot.analytics.service;
 
-import com.iot.shared.domain.DeviceData;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iot.contracts.domain.DeviceData;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Sinks;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import reactor.rabbitmq.ConsumeOptions;
+import reactor.rabbitmq.Receiver;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.locks.LockSupport;
 
 @Service
 @Slf4j
 public class AmqpConsumer {
 
-    private final Sinks.Many<DeviceData> sink;
+    private final Receiver receiver;
+    private final AnalyticsService analyticsService;
+    private final AnalyticsPersistence analyticsPersistence;
+    private final LiveAnalyticsService liveAnalyticsService;
+    private final ObjectMapper objectMapper;
 
-    public AmqpConsumer(AnalyticsService analyticsService,
-                        AnalyticsPublisher analyticsPublisher,
-                        @Value("${app.rabbitmq.analytics.batching.size}") int outputBatchSize,
-                        @Value("${app.rabbitmq.analytics.batching.timeout-ms}") int timeoutMs,
-                        @Value("${app.rabbitmq.analytics.batching.buffer-limit}") int bufferLimit,
-                        @Value("${app.rabbitmq.analytics.batching.concurrency}") int concurrency) {
+    @Value("${app.rabbitmq.analytics.queue.name}")
+    private String queueName;
 
-        this.sink = Sinks.many().multicast().onBackpressureBuffer(bufferLimit, false);
+    @Value("${app.rabbitmq.analytics.batching.timeout-ms}")
+    private int timeoutMs;
 
+    @Value("${app.rabbitmq.analytics.batching.concurrency}")
+    private int concurrency;
+
+    public AmqpConsumer(Receiver receiver,
+                        AnalyticsService analyticsService,
+                        AnalyticsPersistence analyticsPersistence,
+                        LiveAnalyticsService liveAnalyticsService,
+                        ObjectMapper objectMapper) {
+        this.receiver = receiver;
+        this.analyticsService = analyticsService;
+        this.analyticsPersistence = analyticsPersistence;
+        this.liveAnalyticsService = liveAnalyticsService;
+        this.objectMapper = objectMapper;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void start() {
+        log.info("Starting Reactive RabbitMQ Consumer for Analytics queue: {}", queueName);
+
+        // This pipeline dynamically recreates the RabbitMQ consumer if the calculation batch size changes
+        // This allows us to adjust the prefetch (QoS) on the fly for optimal throughput.
         analyticsService.getBatchSizeFlux()
                 .distinctUntilChanged()
                 .switchMap(calculationBatchSize -> {
-                    log.info("Configuring analytics pipeline: calcWindow={}, transportBatch={}, concurrency={}",
-                            calculationBatchSize, outputBatchSize, concurrency);
+                    log.info("Configuring reactive analytics pipeline: calcWindow={}, concurrency={}",
+                            calculationBatchSize, concurrency);
 
-                    return this.sink.asFlux()
-                            // 1. Группировка для расчетов (бизнес-логика)
+                    // We set prefetch to 2x the calculation window to keep the pipeline busy
+                    ConsumeOptions options = new ConsumeOptions().qos(calculationBatchSize * 2);
+
+                    Flux<DeviceData> deviceStream = receiver.consumeManualAck(queueName, options)
+                            .flatMap(delivery -> {
+                                List<DeviceData> devices = deserialize(delivery.getBody());
+                                return Mono.fromRunnable(delivery::ack)
+                                        .thenMany(Flux.fromIterable(devices))
+                                        .onErrorResume(e -> {
+                                            log.error("Error processing delivery: {}", e.getMessage());
+                                            delivery.nack(false);
+                                            return Mono.empty();
+                                        });
+                            }, concurrency);
+
+                    return deviceStream
                             .bufferTimeout(calculationBatchSize, Duration.ofMillis(timeoutMs))
                             .flatMap(batch -> {
-                                if (batch.isEmpty()) return reactor.core.publisher.Mono.empty();
-
+                                if (batch.isEmpty()) {
+                                    return Mono.empty();
+                                }
+                                liveAnalyticsService.ingestBatch(batch);
                                 return analyticsService.calculateStats(batch)
                                         .subscribeOn(Schedulers.boundedElastic())
-                                        // Не даем одной ошибке расчета убить весь поток
+                                        .flatMap(analyticsPersistence::save)
                                         .onErrorResume(e -> {
-                                            log.error("Analytics calculation failed for batch: {}", e.getMessage());
-                                            return reactor.core.publisher.Mono.empty();
+                                            log.error("Analytics calculation failed: {}", e.getMessage());
+                                            return Mono.empty();
                                         });
-                            }, concurrency)
-                            // 2. Группировка для отправки результатов (транспортная логика)
-                            .bufferTimeout(outputBatchSize, Duration.ofMillis(timeoutMs))
-                            .doOnNext(analyticsBatch -> {
-                                if (!analyticsBatch.isEmpty()) {
-                                    analyticsPublisher.publishBatch(analyticsBatch);
-                                }
-                            });
+                            }, concurrency);
                 })
-                // Перезапуск всей цепочки при фатальных сбоях
-                .retry()
+                .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(2))
+                        .maxBackoff(Duration.ofSeconds(30)))
                 .subscribe(
-                        v -> {},
-                        e -> log.error("FATAL: Analytics pipeline terminated", e)
+                    v -> {},
+                    e -> log.error("FATAL: Reactive Analytics pipeline terminated: {}", e.getMessage())
                 );
     }
 
-    @RabbitListener(queues = "${app.rabbitmq.analytics.queue.name}")
-    public void consumeMessage(List<DeviceData> deviceDataList) {
-        log.debug("Received {} devices from RabbitMQ", deviceDataList.size());
-
-        for (DeviceData deviceData : deviceDataList) {
-            // Реализация ручного Backpressure:
-            // Мы пытаемся "запихнуть" данные во внутренний буфер (sink).
-            // Если буфер полон (FAIL_OVERFLOW), мы блокируем поток RabbitMQ.
-            while (true) {
-                Sinks.EmitResult result = sink.tryEmitNext(deviceData);
-
-                if (result.isSuccess()) {
-                    break;
-                }
-
-                if (result == Sinks.EmitResult.FAIL_OVERFLOW) {
-                    // Буфер переполнен. Спим 10мс и пробуем снова.
-                    // Это заставляет данные копиться в RabbitMQ, а не в RAM.
-                    LockSupport.parkNanos(10_000_000);
-                    continue;
-                }
-
-                if (result.isFailure()) {
-                    log.error("Critical error emitting to sink: {}", result);
-                    break;
-                }
+    private List<DeviceData> deserialize(byte[] body) {
+        try {
+            if (body == null || body.length == 0) return List.of();
+            if (body[0] == '[') {
+                return objectMapper.readValue(body, new TypeReference<List<DeviceData>>() {});
+            } else {
+                return List.of(objectMapper.readValue(body, DeviceData.class));
             }
+        } catch (Exception e) {
+            log.error("Failed to deserialize message: {}", e.getMessage());
+            return List.of();
         }
     }
 }

@@ -1,19 +1,23 @@
 package com.iot.simulator.service;
 
-import com.iot.shared.domain.DeviceData;
 import com.iot.simulator.controller.DeviceGenerator;
+import com.iot.contracts.domain.DeviceData;
+
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.Disposable;
+
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import lombok.extern.slf4j.Slf4j;
+
 
 @Service
 @Slf4j
@@ -22,8 +26,8 @@ public class SimulationService {
     private final DeviceGenerator deviceGenerator = new DeviceGenerator();
     private final WebClient webClient;
 
-    @Value("${analytics.url}")
-    private String analyticsUrl;
+    @Value("${controller.url}")
+    private String controllerUrl;
 
     private final AtomicInteger deviceCount;
     private final AtomicInteger frequencySeconds;
@@ -41,7 +45,8 @@ public class SimulationService {
         return batchSize.get();
     }
 
-    private Disposable simulationSubscription;
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final Sinks.Many<Boolean> controlSink = Sinks.many().multicast().onBackpressureBuffer();
     private List<DeviceData> deviceData;
 
     public SimulationService(
@@ -53,6 +58,28 @@ public class SimulationService {
         this.deviceCount = new AtomicInteger(deviceCount);
         this.frequencySeconds = new AtomicInteger(frequencySeconds);
         this.batchSize = new AtomicInteger(batchSize);
+
+        // Declarative simulation pipeline
+        controlSink.asFlux()
+                .distinctUntilChanged()
+                .switchMap(run -> {
+                    if (!run) {
+                        return Flux.empty();
+                    }
+                    return Flux.interval(Duration.ofSeconds(1))
+                            .onBackpressureDrop(tick -> log.warn("Simulation tick dropped due to slow processing"))
+                            .concatMap(tick -> {
+                                int currentTotal = this.deviceCount.get();
+                                int freq = this.frequencySeconds.get();
+                                int devicesToSendPerSecond = Math.max(1, currentTotal / freq);
+                                return sendData(devicesToSendPerSecond);
+                            });
+                })
+                .subscribe(
+                        null,
+                        error -> log.error("Critical error in simulation pipeline: {}", error.getMessage()),
+                        () -> log.info("Simulation pipeline completed")
+                );
     }
 
     public Mono<Void> configure(int deviceCount, int frequencySeconds) {
@@ -65,37 +92,24 @@ public class SimulationService {
         });
     }
 
-    public synchronized Mono<Void> start() {
-        if (isRunning()) {
-            return Mono.empty();
-        }
-
-        return (deviceData == null ? configure(deviceCount.get(), frequencySeconds.get())
-                : Mono.empty())
+    public Mono<Void> start() {
+        return (deviceData == null ? configure(deviceCount.get(), frequencySeconds.get()) : Mono.empty())
                 .then(Mono.fromRunnable(() -> {
-                    log.info("Starting simulation: {} devices, frequency 1/{}s", deviceCount.get(),
-                            frequencySeconds.get());
-
-                    simulationSubscription = Flux.interval(Duration.ofSeconds(1))
-                            .flatMap(tick -> {
-                                int currentTotal = deviceCount.get();
-                                int freq = frequencySeconds.get();
-                                int devicesToSendPerSecond = Math.max(1, currentTotal / freq);
-                                return sendData(devicesToSendPerSecond);
-                            })
-                            .subscribe(
-                                    null,
-                                    error -> log.error("Critical error in simulation: {}", error.getMessage()));
+                    if (running.compareAndSet(false, true)) {
+                        log.info("Starting simulation: {} devices, frequency 1/{}s", deviceCount.get(),
+                                frequencySeconds.get());
+                        controlSink.tryEmitNext(true);
+                    }
                 }));
     }
 
-    public synchronized Mono<Void> stop() {
+    public Mono<Void> stop() {
         return Mono.fromRunnable(() -> {
-            if (simulationSubscription != null && !simulationSubscription.isDisposed()) {
+            if (running.compareAndSet(true, false)) {
                 log.info("Stopping simulation");
-                simulationSubscription.dispose();
+                controlSink.tryEmitNext(false);
             }
-        }).then();
+        });
     }
 
     private Mono<Void> sendData(int count) {
@@ -118,19 +132,19 @@ public class SimulationService {
                 .concatMap(batch -> {
                     log.debug("Sending batch of {} devices", batch.size());
                     return webClient.post()
-                            .uri(analyticsUrl)
+                            .uri(controllerUrl)
                             .bodyValue(batch)
                             .retrieve()
                             .bodyToMono(Void.class)
                             .retry(1)
-                            .doOnError(e -> log.error("Error sending batch to analytics: {}", e.getMessage()))
+                            .doOnError(e -> log.error("Error sending batch to controller: {}", e.getMessage()))
                             .onErrorResume(e -> Mono.empty());
                 })
                 .then();
     }
 
     public boolean isRunning() {
-        return simulationSubscription != null && !simulationSubscription.isDisposed();
+        return running.get();
     }
 
 }

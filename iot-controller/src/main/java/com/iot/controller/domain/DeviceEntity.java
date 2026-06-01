@@ -1,11 +1,14 @@
 package com.iot.controller.domain;
 
-import com.iot.shared.domain.components.Location;
-import com.iot.shared.domain.components.Status;
-import com.iot.shared.domain.components.Type;
+import com.iot.contracts.domain.components.Location;
+import com.iot.contracts.domain.components.Status;
+import com.iot.contracts.domain.components.Type;
+
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
+
 import jakarta.validation.constraints.NotNull;
+
 import java.time.Instant;
 import java.util.List;
 

@@ -42,13 +42,15 @@ public class SimulatorController {
 
     @GetMapping("/status")
     public Mono<Map<String, Object>> getStatus() {
-        return Mono.fromCallable(() -> {
-            LinkedHashMap<String, Object> status = new LinkedHashMap<>();
-            status.put("running", simulationService.isRunning());
-            status.put("deviceCount", simulationService.getDeviceCount());
-            status.put("frequencySeconds", simulationService.getFrequencySeconds());
-            status.put("batchSize", simulationService.getBatchSize());
-            return status;
-        });
+        return Mono.just(buildStatus());
+    }
+
+    private Map<String, Object> buildStatus() {
+        LinkedHashMap<String, Object> status = new LinkedHashMap<>();
+        status.put("running", simulationService.isRunning());
+        status.put("deviceCount", simulationService.getDeviceCount());
+        status.put("frequencySeconds", simulationService.getFrequencySeconds());
+        status.put("batchSize", simulationService.getBatchSize());
+        return status;
     }
 }

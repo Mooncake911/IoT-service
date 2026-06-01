@@ -27,14 +27,17 @@
         </encoder>
     </appender>
 
-    <springProfile name="docker,elk">
+    <springProfile name="elk">
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="reactor.netty" level="WARN"/>
+        <logger name="org.mongodb.driver" level="WARN"/>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="LOGSTASH"/>
         </root>
     </springProfile>
     
-    <springProfile name="!docker,!elk">
+    <springProfile name="!elk">
         <root level="INFO">
             <appender-ref ref="CONSOLE_PLAIN"/>
         </root>

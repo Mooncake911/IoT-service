@@ -1,0 +1,10 @@
+{
+  "index_patterns": [
+    "logs-*"
+  ],
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "logs-retention-14d"
+    }
+  }
+}

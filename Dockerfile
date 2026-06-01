@@ -8,18 +8,19 @@ WORKDIR /app
 
 # Copy ALL poms to satisfy Maven's module check
 COPY pom.xml .
-COPY shared/pom.xml shared/
+COPY iot-contracts/pom.xml iot-contracts/
 COPY iot-analytics/pom.xml iot-analytics/
 COPY iot-controller/pom.xml iot-controller/
 COPY iot-data-simulator/pom.xml iot-data-simulator/
-COPY iot-rule-engine/pom.xml iot-rule-engine/
+COPY iot-alerts/pom.xml iot-alerts/
+COPY iot-data-gateway/pom.xml iot-data-gateway/
 
-# Resolve dependencies for the specific service and its shared dependency
+# Resolve dependencies for the specific service and its contracts dependency
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline dependency:resolve-plugins -pl shared,${SERVICE_NAME} -am -fn
+    mvn dependency:go-offline dependency:resolve-plugins -pl iot-contracts,${SERVICE_NAME} -am
 
 # Copy only necessary source code
-COPY shared/src ./shared/src/
+COPY iot-contracts/src ./iot-contracts/src/
 COPY ${SERVICE_NAME}/src ./${SERVICE_NAME}/src/
 
 # Package the application
@@ -51,5 +52,6 @@ ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
 # Named targets for better visibility in logs
 FROM final AS iot-controller
 FROM final AS iot-analytics
-FROM final AS iot-rule-engine
+FROM final AS iot-alerts
+FROM final AS iot-data-gateway
 FROM final AS iot-data-simulator

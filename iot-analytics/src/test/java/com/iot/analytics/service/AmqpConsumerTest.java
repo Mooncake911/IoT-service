@@ -1,21 +1,27 @@
 package com.iot.analytics.service;
 
-import com.iot.shared.domain.DeviceData;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iot.contracts.domain.DeviceData;
+import com.iot.contracts.domain.components.Location;
+import com.iot.contracts.domain.components.Status;
+import com.iot.contracts.domain.components.Type;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.List;
-
+import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.rabbitmq.AcknowledgableDelivery;
+import reactor.rabbitmq.Receiver;
 
-import static org.mockito.Mockito.when;
+import java.time.Instant;
+import java.util.List;
+
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 public class AmqpConsumerTest {
@@ -24,28 +30,55 @@ public class AmqpConsumerTest {
     private AnalyticsService analyticsService;
 
     @Mock
-    private AnalyticsPublisher analyticsPublisher;
+    private AnalyticsPersistence analyticsPersistence;
 
+    @Mock
+    private LiveAnalyticsService liveAnalyticsService;
+
+    @Mock
+    private Receiver receiver;
+
+    @Mock
+    private AcknowledgableDelivery delivery;
+
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private AmqpConsumer amqpConsumer;
 
-    @org.junit.jupiter.api.BeforeEach
+    @BeforeEach
     void setUp() {
         when(analyticsService.getBatchSizeFlux()).thenReturn(Flux.just(1));
-        amqpConsumer = new AmqpConsumer(analyticsService, analyticsPublisher,100, 2048, 2, 2);
+
+        amqpConsumer = new AmqpConsumer(receiver, analyticsService, analyticsPersistence, liveAnalyticsService, objectMapper);
+        ReflectionTestUtils.setField(amqpConsumer, "queueName", "analytics.test.queue");
+        ReflectionTestUtils.setField(amqpConsumer, "timeoutMs", 100);
+        ReflectionTestUtils.setField(amqpConsumer, "concurrency", 1);
     }
 
     @Test
-    @DisplayName("Should process batch of devices via AnalyticsService")
-    public void consumeMessage_shouldProcessBatch() {
+    @DisplayName("Should process message from reactive receiver")
+    public void start_shouldProcessIncomingMessages() throws Exception {
         // Arrange
-        DeviceData deviceData = new DeviceData(999L, "Rabbit Device", "Manufacturer", null, null, null, null);
-        List<DeviceData> batch = List.of(deviceData);
-        when(analyticsService.calculateStats(any())).thenReturn(Mono.empty());
+        DeviceData deviceData = DeviceData.builder()
+                .id(999L)
+                .name("Rabbit Device")
+                .manufacturer("Manufacturer")
+                .type(Type.SENSOR_TEMPERATURE)
+                .location(new Location(1, 2, 0))
+                .status(new Status(true, 80, 70, Instant.now()))
+                .build();
+
+        byte[] body = objectMapper.writeValueAsBytes(List.of(deviceData));
+
+        when(delivery.getBody()).thenReturn(body);
+        when(receiver.consumeManualAck(eq("analytics.test.queue"), any())).thenReturn(Flux.just(delivery));
+        when(analyticsService.calculateStats(any())).thenReturn(Mono.just(mock(com.iot.contracts.domain.AnalyticsData.class)));
+        when(analyticsPersistence.save(any())).thenReturn(Mono.empty());
 
         // Act
-        amqpConsumer.consumeMessage(batch);
+        amqpConsumer.start();
 
         // Assert
-        verify(analyticsService, timeout(2000)).calculateStats(batch);
+        verify(analyticsService, timeout(2000)).calculateStats(any());
+        verify(delivery, timeout(2000)).ack();
     }
 }

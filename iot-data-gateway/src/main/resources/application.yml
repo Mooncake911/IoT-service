@@ -1,0 +1,61 @@
+server:
+  port: ${SPRING_SERVER_PORT:${GATEWAY_PORT:8085}}
+
+spring:
+  main:
+    banner-mode: console
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 2000
+            response-timeout: 10s
+          routes:
+            - id: iot-analytics
+              uri: ${ANALYTICS_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/analytics/**,/api/v1/analytics/**
+              filters:
+                - RewritePath=/api/v1/analytics/?(?<segment>.*), /api/analytics/$\{segment}
+                - name: Retry
+                  args:
+                    retries: 2
+                    statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE
+            - id: iot-alerts
+              uri: ${ALERTS_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/alerts/**,/api/v1/alerts/**
+              filters:
+                - RewritePath=/api/v1/alerts/?(?<segment>.*), /api/alerts/$\{segment}
+                - name: Retry
+                  args:
+                    retries: 2
+                    statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE
+            - id: iot-data-simulator
+              uri: ${SIMULATOR_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/simulator/**,/api/v1/simulator/**
+              filters:
+                - RewritePath=/api/v1/simulator/?(?<segment>.*), /api/simulator/$\{segment}
+                - name: Retry
+                  args:
+                    retries: 2
+                    statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE
+            - id: iot-controller
+              uri: ${CONTROLLER_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/controller/**,/api/v1/controller/**
+              filters:
+                - RewritePath=/api/v1/controller/?(?<segment>.*), /api/controller/$\{segment}
+                - RewritePath=/api/controller/?(?<segment>.*), /api/ingest/$\{segment}
+                - name: Retry
+                  args:
+                    retries: 2
+                    statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

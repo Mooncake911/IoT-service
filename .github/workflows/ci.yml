@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  server-build:
+    name: Server Build (Maven)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 24
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "24"
+          cache: maven
+
+      - name: Build server modules
+        run: ./mvnw -B -ntp clean package -DskipTests
+
+  server-test:
+    name: Server Test (Maven)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 24
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "24"
+          cache: maven
+
+      - name: Run server tests
+        run: ./mvnw -B -ntp test
+
+  client-build:
+    name: Client Build (Dashboard)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: iot-dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dashboard dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Build dashboard package
+        run: uv build
+
+  client-test:
+    name: Client Test (Dashboard)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: iot-dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dashboard dependencies (with dev)
+        run: uv sync --frozen
+
+      - name: Run dashboard tests
+        run: uv run pytest -q

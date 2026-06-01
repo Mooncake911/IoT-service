@@ -1,98 +1,87 @@
 package com.iot.analytics.statistics;
 
-import com.iot.shared.domain.DeviceData;
-import com.iot.analytics.statistics.computation.*;
 import com.iot.analytics.statistics.model.DeviceStats;
-import com.iot.analytics.statistics.model.StatsConfig;
+import com.iot.contracts.domain.DeviceData;
 
-import io.reactivex.rxjava3.core.Flowable;
-import io.reactivex.rxjava3.core.Observable;
-
+import java.util.HashMap;
 import java.util.List;
-import java.util.stream.StreamSupport;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collector;
 
-public final class DeviceStatistics {
-    private final StatsConfig statsConfig;
-    private final DeviceStatsStandardCollectors standardStats;
-    private final DeviceStatsCollector customStats;
-    private final DeviceStatsReactive reactiveStats;
+public class DeviceStatistics {
 
-    public DeviceStatistics(StatsConfig statsConfig) {
-        this.statsConfig = statsConfig;
-        this.standardStats = new DeviceStatsStandardCollectors(statsConfig);
-        this.customStats = new DeviceStatsCollector(statsConfig);
-        this.reactiveStats = new DeviceStatsReactive(statsConfig);
-    }
-
-    // 1. Итерационный подход
     public DeviceStats computeSequential(List<DeviceData> deviceData) {
-        DeviceStatsAccumulator accumulator = new DeviceStatsAccumulator(statsConfig);
-        for (DeviceData device : deviceData) {
-            accumulator.accept(device);
+        return compute(deviceData.stream());
+    }
+
+    public DeviceStats computeParallel(List<DeviceData> deviceData) {
+        return compute(deviceData.parallelStream());
+    }
+
+    private DeviceStats compute(java.util.stream.Stream<DeviceData> stream) {
+        if (stream == null) {
+            return DeviceStats.builder().build();
         }
-        return accumulator.toDeviceStats();
+
+        StatsAccumulator stats = stream.collect(statsCollector());
+        if (stats.totalDevices == 0) {
+            return DeviceStats.builder().build();
+        }
+
+        Map<String, Object> metrics = new HashMap<>();
+        metrics.put("totalDevices", (double) stats.totalDevices);
+        metrics.put("onlineDevices", (double) stats.onlineDevices);
+        metrics.put("avgBatteryLevel", stats.totalBattery / (double) stats.totalDevices);
+        metrics.put("avgSignalStrength", stats.totalSignal / (double) stats.totalDevices);
+        metrics.put("uniqueManufacturers", (double) stats.manufacturers.size());
+        metrics.put("uniqueTypes", (double) stats.types.size());
+
+        return DeviceStats.builder().metrics(metrics).build();
     }
 
-    // 2. Stream API со стандартными коллекторами с конфигурацией
-    public DeviceStats computeWithStandardCollectors(List<DeviceData> deviceData) {
-        return standardStats.compute(deviceData);
+    private Collector<DeviceData, StatsAccumulator, StatsAccumulator> statsCollector() {
+        return Collector.of(
+                StatsAccumulator::new,
+                StatsAccumulator::add,
+                StatsAccumulator::merge);
     }
 
-    public DeviceStats computeWithStandardCollectorsParallel(List<DeviceData> deviceData) {
-        return standardStats.computeParallel(deviceData);
-    }
+    private static final class StatsAccumulator {
+        private long totalDevices;
+        private long onlineDevices;
+        private long totalBattery;
+        private long totalSignal;
+        private final Set<String> manufacturers = ConcurrentHashMap.newKeySet();
+        private final Set<String> types = ConcurrentHashMap.newKeySet();
 
-    public DeviceStats computeWithStandardCollectorsParallel(List<DeviceData> deviceData, int batchSize) {
-        DeviceSpliterator spliterator = new DeviceSpliterator(deviceData, batchSize);
-        deviceData = StreamSupport.stream(spliterator, true).toList();
-        return standardStats.computeParallel(deviceData);
-    }
+        private void add(DeviceData deviceData) {
+            totalDevices++;
+            if (deviceData.status() != null) {
+                if (deviceData.status().isOnline()) {
+                    onlineDevices++;
+                }
+                totalBattery += deviceData.status().batteryLevel();
+                totalSignal += deviceData.status().signalStrength();
+            }
 
-    // 3. Stream API с собственным коллектором
-    public DeviceStats computeWithCustomCollector(List<DeviceData> deviceData) {
-        return customStats.compute(deviceData);
-    }
+            if (deviceData.manufacturer() != null) {
+                manufacturers.add(deviceData.manufacturer());
+            }
+            if (deviceData.type() != null) {
+                types.add(deviceData.type().name());
+            }
+        }
 
-    public DeviceStats computeWithCustomCollectorParallel(List<DeviceData> deviceData) {
-        return customStats.computeParallel(deviceData);
-    }
-
-    public DeviceStats computeWithCustomCollectorParallel(List<DeviceData> deviceData, int batchSize) {
-        DeviceSpliterator spliterator = new DeviceSpliterator(deviceData, batchSize);
-        deviceData = StreamSupport.stream(spliterator, true).toList();
-        return customStats.computeParallel(deviceData);
-    }
-
-    // 3. Реактивные методы
-    public Observable<DeviceStats> computeObservable(List<DeviceData> deviceData, int batchSize) {
-        return reactiveStats.computeObservable(deviceData, batchSize);
-    }
-
-    public Flowable<DeviceStats> computeFlowable(List<DeviceData> deviceData, int batchSize) {
-        return reactiveStats.computeFlowable(toFlowable(deviceData), batchSize);
-    }
-
-    public Flowable<DeviceStats> computeFlowableParallel(List<DeviceData> deviceData, int batchSize, int parallelism) {
-        return reactiveStats.computeFlowableParallel(toFlowable(deviceData), batchSize, parallelism);
-    }
-
-    public DeviceStats computeObservableSync(List<DeviceData> deviceData, int batchSize) {
-        return reactiveStats.computeObservableSync(deviceData, batchSize);
-    }
-
-    public DeviceStats computeFlowableSync(List<DeviceData> deviceData, int batchSize) {
-        return reactiveStats.computeFlowableSync(toFlowable(deviceData), batchSize);
-    }
-
-    public DeviceStats computeFlowableParallelSync(List<DeviceData> deviceData, int batchSize, int parallelism) {
-        return reactiveStats.computeFlowableParallelSync(toFlowable(deviceData), batchSize, parallelism);
-    }
-
-    public DeviceStats computeWithCustomSubscriber(List<DeviceData> deviceData, int batchSize) {
-        return reactiveStats.computeWithCustomSubscriber(toFlowable(deviceData), batchSize);
-    }
-
-    public static Flowable<DeviceData> toFlowable(List<DeviceData> deviceData) {
-        return Flowable.fromIterable(deviceData);
+        private StatsAccumulator merge(StatsAccumulator other) {
+            totalDevices += other.totalDevices;
+            onlineDevices += other.onlineDevices;
+            totalBattery += other.totalBattery;
+            totalSignal += other.totalSignal;
+            manufacturers.addAll(other.manufacturers);
+            types.addAll(other.types);
+            return this;
+        }
     }
 }

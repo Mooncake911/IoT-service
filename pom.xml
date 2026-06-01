@@ -13,11 +13,12 @@
     <description>Parent POM for IoT Microservices</description>
 
     <modules>
-        <module>shared</module>
+        <module>iot-contracts</module>
         <module>iot-data-simulator</module>
         <module>iot-analytics</module>
         <module>iot-controller</module>
-        <module>iot-rule-engine</module>
+        <module>iot-alerts</module>
+        <module>iot-data-gateway</module>
     </modules>
 
     <properties>
@@ -30,10 +31,9 @@
 
         <!-- Версии плагинов -->
         <lombok.version>1.18.40</lombok.version>
-        <jackson.version>2.15.2</jackson.version>
-        <rxjava.version>3.1.8</rxjava.version>
         <spring.boot.version>3.5.9</spring.boot.version>
         <projectreactor.rabbitmq.version>1.5.6</projectreactor.rabbitmq.version>
+        <springdoc.version>2.8.13</springdoc.version>
 
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
@@ -49,16 +49,6 @@
                 <version>${spring.boot.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>io.reactivex.rxjava3</groupId>
-                <artifactId>rxjava</artifactId>
-                <version>${rxjava.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.version}</version>
             </dependency>
             <dependency>
                 <groupId>net.logstash.logback</groupId>
@@ -79,7 +69,7 @@
             <dependency>
                 <groupId>io.projectreactor.rabbitmq</groupId>
                 <artifactId>reactor-rabbitmq</artifactId>
-                <version>${projectreactor.rabbitmq.version}}</version>
+                <version>${projectreactor.rabbitmq.version}</version>
             </dependency>
 
             <dependency>
@@ -87,6 +77,11 @@
                 <artifactId>spring-boot-configuration-processor</artifactId>
                 <version>${spring.boot.version}</version>
                 <optional>true</optional>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.projectlombok</groupId>

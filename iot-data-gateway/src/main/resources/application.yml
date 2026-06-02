@@ -17,7 +17,8 @@ spring:
               predicates:
                 - Path=/api/analytics/**,/api/v1/analytics/**
               filters:
-                - RewritePath=/api/v1/analytics/?(?<segment>.*), /api/analytics/$\{segment}
+                - RewritePath=/api/v1/analytics$, /api/analytics
+                - RewritePath=/api/v1/analytics/(?<segment>.*), /api/analytics/$\{segment}
                 - name: Retry
                   args:
                     retries: 2
@@ -27,7 +28,8 @@ spring:
               predicates:
                 - Path=/api/alerts/**,/api/v1/alerts/**
               filters:
-                - RewritePath=/api/v1/alerts/?(?<segment>.*), /api/alerts/$\{segment}
+                - RewritePath=/api/v1/alerts$, /api/alerts
+                - RewritePath=/api/v1/alerts/(?<segment>.*), /api/alerts/$\{segment}
                 - name: Retry
                   args:
                     retries: 2
@@ -37,7 +39,8 @@ spring:
               predicates:
                 - Path=/api/simulator/**,/api/v1/simulator/**
               filters:
-                - RewritePath=/api/v1/simulator/?(?<segment>.*), /api/simulator/$\{segment}
+                - RewritePath=/api/v1/simulator$, /api/simulator
+                - RewritePath=/api/v1/simulator/(?<segment>.*), /api/simulator/$\{segment}
                 - name: Retry
                   args:
                     retries: 2
@@ -47,8 +50,10 @@ spring:
               predicates:
                 - Path=/api/controller/**,/api/v1/controller/**
               filters:
-                - RewritePath=/api/v1/controller/?(?<segment>.*), /api/controller/$\{segment}
-                - RewritePath=/api/controller/?(?<segment>.*), /api/ingest/$\{segment}
+                - RewritePath=/api/v1/controller$, /api/ingest
+                - RewritePath=/api/v1/controller/(?<segment>.*), /api/ingest/$\{segment}
+                - RewritePath=/api/controller$, /api/ingest
+                - RewritePath=/api/controller/(?<segment>.*), /api/ingest/$\{segment}
                 - name: Retry
                   args:
                     retries: 2

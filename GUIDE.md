@@ -29,7 +29,7 @@ docker compose down -v
 
 ## 2. Куда заходить (UI/HTTP)
 
-- Dashboard UI (Flet): `http://localhost:8501`
+- Dashboard UI (React/Vite): `http://localhost:8501`
 - Gateway: `http://localhost:8085`
 - Simulator: `http://localhost:8081`
 - Controller: `http://localhost:8082`

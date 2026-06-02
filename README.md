@@ -13,7 +13,7 @@
 - `iot-analytics` читает поток из RabbitMQ, рассчитывает статистику и сохраняет результаты в свою MongoDB.
 - `iot-alerts` читает тот же поток из RabbitMQ, применяет правила и сохраняет сработавшие алерты в свою MongoDB.
 - `iot-data-gateway` предоставляет единый HTTP-вход для dashboard и проксирует запросы в simulator, controller, analytics и alerts.
-- `iot-dashboard` (UI-клиент) работает поверх gateway и даёт пользовательский интерфейс для управления и просмотра состояния системы.
+- `iot-dashboard` (React/Vite UI-клиент, отдельный submodule) работает поверх gateway и даёт пользовательский интерфейс для управления и просмотра состояния системы.
 - `iot-contracts` содержит общие DTO и доменные модели, которые используются несколькими Java-сервисами.
 
 Инфраструктура:
@@ -211,6 +211,7 @@ HTTP API:
 Маршруты:
 
 - `/api/controller/**` -> `iot-controller` (rewrite в `/api/ingest/**` внутри controller)
+- `/api/v1/controller/**` -> `iot-controller` (rewrite в `/api/ingest/**` внутри controller)
 - `/api/analytics/**` -> `iot-analytics`
 - `/api/alerts/**` -> `iot-alerts`
 - `/api/simulator/**` -> `iot-data-simulator`
@@ -230,8 +231,9 @@ HTTP API:
 
 Назначение:
 
-- Python-слой для пользовательского взаимодействия.
+- React/Vite UI-клиент для пользовательского взаимодействия.
 - Ходит только в `iot-data-gateway`.
+- Подключён как отдельный `git submodule`.
 
 Что dashboard делает через gateway:
 
@@ -402,7 +404,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
 
 Скрипт:
 
-- отправляет тестовый batch в `/api/controller` через gateway;
+- отправляет тестовый batch в `/api/v1/controller` через gateway;
 - ждёт завершения асинхронной обработки;
 - затем читает:
   - `/api/analytics/history`
@@ -423,5 +425,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
 
 - Если меняется структура `DeviceData`, нужно синхронно обновлять `iot-contracts`, simulator, controller, analytics и alerts.
 - Если добавляется новый downstream-потребитель событий, ему достаточно подключить собственную очередь к `iot.data.exchange`.
-- Если меняется внешний API для dashboard, изменения почти всегда должны идти через `iot-data-gateway`, а не напрямую в Python-клиент.
+- Если меняется внешний API для dashboard, изменения почти всегда должны идти через `iot-data-gateway`, а не напрямую в UI-клиент.
 - Если меняются имена сервисов или портов, документация должна сверяться не со старыми README, а с `docker-compose.yml` и `application.yml` конкретных модулей.

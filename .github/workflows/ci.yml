@@ -56,7 +56,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: iot-dashboard/package-lock.json
 
       - name: Install dashboard dependencies
         run: npm ci
@@ -79,7 +79,7 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: iot-dashboard/package-lock.json
 
       - name: Install dashboard dependencies (with dev)
         run: npm ci

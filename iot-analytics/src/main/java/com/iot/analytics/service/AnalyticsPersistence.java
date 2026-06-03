@@ -20,16 +20,15 @@ public class AnalyticsPersistence {
     public Mono<Void> save(AnalyticsData data) {
         AnalyticsEntity entity = toEntity(data);
         return repository.save(entity)
-                .doOnSuccess(saved -> log.debug("Saved analytics for device {}", data.deviceId()))
+                .doOnSuccess(saved -> log.debug("Saved analytics at {}", data.timestamp()))
                 .doOnError(
-                        e -> log.error("Failed to save analytics for device {}: {}", data.deviceId(), e.getMessage()))
+                        e -> log.error("Failed to save analytics at {}: {}", data.timestamp(), e.getMessage()))
                 .then();
     }
 
     private AnalyticsEntity toEntity(AnalyticsData data) {
         return new AnalyticsEntity(
                 null,
-                data.deviceId(),
                 data.timestamp(),
                 data.metrics());
     }

@@ -9,7 +9,6 @@ import java.util.Map;
 @Document(collection = "analytics")
 public record AnalyticsEntity(
         @Id String id,
-        long deviceId,
         Instant timestamp,
         Map<String, Object> metrics) {
 }

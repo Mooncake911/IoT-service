@@ -29,8 +29,6 @@ public class ReportAnalyticsService {
         double weightedOnlineDevices = 0.0;
         double weightedBattery = 0.0;
         double weightedSignal = 0.0;
-        double uniqueManufacturersMax = 0.0;
-        double uniqueTypesMax = 0.0;
 
         for (AnalyticsEntity row : rows) {
             Map<String, Object> m = row.metrics();
@@ -44,15 +42,11 @@ public class ReportAnalyticsService {
             double online = asDouble(m.get("onlineDevices"));
             double avgBattery = asDouble(m.get("avgBatteryLevel"));
             double avgSignal = asDouble(m.get("avgSignalStrength"));
-            double uniqManufacturers = asDouble(m.get("uniqueManufacturers"));
-            double uniqTypes = asDouble(m.get("uniqueTypes"));
 
             weightedTotalDevices += total;
             weightedOnlineDevices += online;
             weightedBattery += avgBattery * total;
             weightedSignal += avgSignal * total;
-            uniqueManufacturersMax = Math.max(uniqueManufacturersMax, uniqManufacturers);
-            uniqueTypesMax = Math.max(uniqueTypesMax, uniqTypes);
         }
 
         Map<String, Object> out = new LinkedHashMap<>();
@@ -63,8 +57,6 @@ public class ReportAnalyticsService {
         out.put("onlineRate", weightedTotalDevices == 0 ? 0.0 : weightedOnlineDevices / weightedTotalDevices);
         out.put("avgBatteryLevel", weightedTotalDevices == 0 ? 0.0 : weightedBattery / weightedTotalDevices);
         out.put("avgSignalStrength", weightedTotalDevices == 0 ? 0.0 : weightedSignal / weightedTotalDevices);
-        out.put("maxUniqueManufacturersInWindow", uniqueManufacturersMax);
-        out.put("maxUniqueTypesInWindow", uniqueTypesMax);
         return out;
     }
 

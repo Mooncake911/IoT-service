@@ -39,9 +39,7 @@ app:
       queue:
         name: iot-analytics.queue
         ttl: 60000
-      batching:
-        timeout-ms: 1000
-        concurrency: 8
+      concurrency: 8
   analytics:
     default-method: Parallel
-    default-batch-size: 500
+    default-window-seconds: 30

@@ -25,18 +25,18 @@ class AnalyticsServiceTest {
     @DisplayName("Should return calculated stats when device data is provided")
     void calculateStats_Success() {
         // Arrange
-        DeviceData deviceData = new DeviceData(1L, "TestDevice", "Manufacturer", Type.SENSOR_TEMPERATURE, null, null,
-                null);
-        List<DeviceData> batch = List.of(deviceData);
+        List<DeviceData> batch = List.of(
+                new DeviceData(1L, "TestDevice", "Manufacturer", Type.SENSOR_TEMPERATURE, null, null, null),
+                new DeviceData(1L, "TestDevice-Updated", "Manufacturer", Type.SENSOR_TEMPERATURE, null, null, null),
+                new DeviceData(2L, "OtherDevice", "Manufacturer", Type.CAMERA, null, null, null));
 
         // Act & Assert
         StepVerifier.create(analyticsService.calculateStats(batch))
                 .assertNext(data -> {
                     // Проверяем, что данные рассчитаны верно
                     assertThat(data).isNotNull();
-                    assertThat(data.deviceId()).isEqualTo(1L);
                     assertThat(data.metrics()).containsKey("totalDevices");
-                    assertThat(data.metrics().get("totalDevices")).isEqualTo(1.0);
+                    assertThat(data.metrics().get("totalDevices")).isEqualTo(2.0);
                 })
                 .verifyComplete();
     }

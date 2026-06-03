@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 import reactor.rabbitmq.AcknowledgableDelivery;
@@ -39,12 +40,15 @@ public class AmqpConsumerTest {
     @Mock
     private AcknowledgableDelivery delivery;
 
+    @Mock
+    private RabbitAdmin rabbitAdmin;
+
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private AmqpConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new AmqpConsumer(receiver, ruleEngine, alertPersistence, objectMapper);
+        consumer = new AmqpConsumer(receiver, ruleEngine, alertPersistence, objectMapper, rabbitAdmin);
         ReflectionTestUtils.setField(consumer, "queueName", "alerts.test.queue");
         ReflectionTestUtils.setField(consumer, "batchSize", 10);
         ReflectionTestUtils.setField(consumer, "timeoutMs", 100);

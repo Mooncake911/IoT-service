@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.alerts.engine.RuleEngine;
 import com.iot.contracts.domain.DeviceData;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -27,6 +28,7 @@ public class AmqpConsumer {
     private final RuleEngine ruleEngine;
     private final AlertPersistence alertPersistence;
     private final ObjectMapper objectMapper;
+    private final RabbitAdmin rabbitAdmin;
 
     @Value("${app.rabbitmq.alerts.queue.name}")
     private String queueName;
@@ -43,15 +45,18 @@ public class AmqpConsumer {
     public AmqpConsumer(Receiver receiver, 
                         RuleEngine ruleEngine, 
                         AlertPersistence alertPersistence,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        RabbitAdmin rabbitAdmin) {
         this.receiver = receiver;
         this.ruleEngine = ruleEngine;
         this.alertPersistence = alertPersistence;
         this.objectMapper = objectMapper;
+        this.rabbitAdmin = rabbitAdmin;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
+        rabbitAdmin.initialize();
         log.info("Starting Reactive RabbitMQ Consumer for queue: {}", queueName);
         
         // QoS (prefetch count) is the key to reactive backpressure in RabbitMQ

@@ -4,14 +4,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.contracts.domain.DeviceData;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-import reactor.rabbitmq.ConsumeOptions;
 import reactor.rabbitmq.Receiver;
 import reactor.util.retry.Retry;
 
@@ -27,46 +26,46 @@ public class AmqpConsumer {
     private final AnalyticsPersistence analyticsPersistence;
     private final LiveAnalyticsService liveAnalyticsService;
     private final ObjectMapper objectMapper;
+    private final RabbitAdmin rabbitAdmin;
 
-    @Value("${app.rabbitmq.analytics.queue.name}")
-    private String queueName;
-
-    @Value("${app.rabbitmq.analytics.batching.timeout-ms}")
-    private int timeoutMs;
-
-    @Value("${app.rabbitmq.analytics.batching.concurrency}")
-    private int concurrency;
+    private final String queueName;
+    private final int concurrency;
 
     public AmqpConsumer(Receiver receiver,
                         AnalyticsService analyticsService,
                         AnalyticsPersistence analyticsPersistence,
                         LiveAnalyticsService liveAnalyticsService,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        RabbitAdmin rabbitAdmin,
+                        @org.springframework.beans.factory.annotation.Value("${app.rabbitmq.analytics.queue.name}") String queueName,
+                        @org.springframework.beans.factory.annotation.Value("${app.rabbitmq.analytics.concurrency}") int concurrency) {
         this.receiver = receiver;
         this.analyticsService = analyticsService;
         this.analyticsPersistence = analyticsPersistence;
         this.liveAnalyticsService = liveAnalyticsService;
         this.objectMapper = objectMapper;
+        this.rabbitAdmin = rabbitAdmin;
+        this.queueName = queueName;
+        this.concurrency = concurrency;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
+        rabbitAdmin.initialize();
         log.info("Starting Reactive RabbitMQ Consumer for Analytics queue: {}", queueName);
 
-        // This pipeline dynamically recreates the RabbitMQ consumer if the calculation batch size changes
-        // This allows us to adjust the prefetch (QoS) on the fly for optimal throughput.
-        analyticsService.getBatchSizeFlux()
+        analyticsService.getWindowDurationFlux()
                 .distinctUntilChanged()
-                .switchMap(calculationBatchSize -> {
-                    log.info("Configuring reactive analytics pipeline: calcWindow={}, concurrency={}",
-                            calculationBatchSize, concurrency);
+                .switchMap(windowSeconds -> {
+                    log.info("Configuring reactive analytics pipeline: windowSeconds={}, concurrency={}",
+                            windowSeconds, concurrency);
 
-                    // We set prefetch to 2x the calculation window to keep the pipeline busy
-                    ConsumeOptions options = new ConsumeOptions().qos(calculationBatchSize * 2);
+                    int prefetch = Math.max(32, concurrency * 16);
 
-                    Flux<DeviceData> deviceStream = receiver.consumeManualAck(queueName, options)
+                    Flux<DeviceData> deviceStream = receiver.consumeManualAck(queueName, new reactor.rabbitmq.ConsumeOptions().qos(prefetch))
                             .flatMap(delivery -> {
                                 List<DeviceData> devices = deserialize(delivery.getBody());
+                                liveAnalyticsService.ingestDevices(devices);
                                 return Mono.fromRunnable(delivery::ack)
                                         .thenMany(Flux.fromIterable(devices))
                                         .onErrorResume(e -> {
@@ -77,12 +76,11 @@ public class AmqpConsumer {
                             }, concurrency);
 
                     return deviceStream
-                            .bufferTimeout(calculationBatchSize, Duration.ofMillis(timeoutMs))
+                            .bufferTimeout(Integer.MAX_VALUE, Duration.ofSeconds(windowSeconds))
                             .flatMap(batch -> {
                                 if (batch.isEmpty()) {
                                     return Mono.empty();
                                 }
-                                liveAnalyticsService.ingestBatch(batch);
                                 return analyticsService.calculateStats(batch)
                                         .subscribeOn(Schedulers.boundedElastic())
                                         .flatMap(analyticsPersistence::save)

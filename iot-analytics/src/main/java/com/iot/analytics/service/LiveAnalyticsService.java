@@ -15,16 +15,33 @@ import java.util.concurrent.atomic.AtomicReference;
 @Slf4j
 public class LiveAnalyticsService {
 
+    private final ConcurrentHashMap<Long, DeviceData> latestDevices = new ConcurrentHashMap<>();
     private final AtomicReference<Map<String, Object>> summaryRef = new AtomicReference<>(defaultSummary());
     private final AtomicReference<Map<String, Object>> byTypeRef = new AtomicReference<>(Map.of("types", Map.of()));
+    private final AtomicReference<Map<String, Object>> byManufacturerRef = new AtomicReference<>(Map.of("manufacturers", Map.of()));
     private final ConcurrentHashMap<Long, Boolean> lastOnlineByDevice = new ConcurrentHashMap<>();
 
-    public void ingestBatch(List<DeviceData> batch) {
+    public synchronized void ingestDevices(List<DeviceData> batch) {
         if (batch == null || batch.isEmpty()) {
             return;
         }
 
-        long total = batch.size();
+        for (DeviceData device : batch) {
+            ingestDevice(device);
+        }
+        recompute();
+    }
+
+    private void ingestDevice(DeviceData device) {
+        if (device == null) {
+            return;
+        }
+        latestDevices.put(device.id(), device);
+    }
+
+    private void recompute() {
+        List<DeviceData> devices = List.copyOf(latestDevices.values());
+        long total = devices.size();
         long online = 0;
         long offline = 0;
         long lowBattery = 0;
@@ -33,10 +50,14 @@ public class LiveAnalyticsService {
         long signalSum = 0;
         long flaps = 0;
         Map<String, Long> typeDistribution = new LinkedHashMap<>();
+        Map<String, Long> manufacturerDistribution = new LinkedHashMap<>();
 
-        for (DeviceData device : batch) {
+        for (DeviceData device : devices) {
             if (device.type() != null) {
                 typeDistribution.merge(device.type().name(), 1L, Long::sum);
+            }
+            if (device.manufacturer() != null) {
+                manufacturerDistribution.merge(device.manufacturer(), 1L, Long::sum);
             }
             if (device.status() == null) {
                 continue;
@@ -63,11 +84,11 @@ public class LiveAnalyticsService {
             }
         }
 
-        double totalD = (double) total;
+        double totalD = total == 0 ? 1.0 : (double) total;
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("timestamp", Instant.now().toString());
-        summary.put("windowSizeDevices", total);
-        summary.put("ingestRateApproxPerSec", totalD);
+        summary.put("totalUniqueDevices", total);
+        summary.put("onlineCount", online);
         summary.put("onlineRate", online / totalD);
         summary.put("offlineCount", offline);
         summary.put("avgBatteryLevel", batterySum / totalD);
@@ -80,9 +101,14 @@ public class LiveAnalyticsService {
         byType.put("timestamp", Instant.now().toString());
         byType.put("types", typeDistribution);
 
+        Map<String, Object> byManufacturer = new LinkedHashMap<>();
+        byManufacturer.put("timestamp", Instant.now().toString());
+        byManufacturer.put("manufacturers", manufacturerDistribution);
+
         summaryRef.set(summary);
         byTypeRef.set(byType);
-        log.debug("Live analytics updated: windowSize={}", total);
+        byManufacturerRef.set(byManufacturer);
+        log.debug("Live analytics updated: totalUniqueDevices={}", total);
     }
 
     public Map<String, Object> getSummary() {
@@ -93,11 +119,15 @@ public class LiveAnalyticsService {
         return byTypeRef.get();
     }
 
+    public Map<String, Object> getByManufacturer() {
+        return byManufacturerRef.get();
+    }
+
     private static Map<String, Object> defaultSummary() {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("timestamp", Instant.now().toString());
-        summary.put("windowSizeDevices", 0L);
-        summary.put("ingestRateApproxPerSec", 0.0);
+        summary.put("totalUniqueDevices", 0L);
+        summary.put("onlineCount", 0L);
         summary.put("onlineRate", 0.0);
         summary.put("offlineCount", 0L);
         summary.put("avgBatteryLevel", 0.0);

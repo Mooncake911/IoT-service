@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.rabbitmq.AcknowledgableDelivery;
@@ -41,17 +41,17 @@ public class AmqpConsumerTest {
     @Mock
     private AcknowledgableDelivery delivery;
 
+    @Mock
+    private RabbitAdmin rabbitAdmin;
+
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private AmqpConsumer amqpConsumer;
 
     @BeforeEach
     void setUp() {
-        when(analyticsService.getBatchSizeFlux()).thenReturn(Flux.just(1));
+        when(analyticsService.getWindowDurationFlux()).thenReturn(Flux.just(1));
 
-        amqpConsumer = new AmqpConsumer(receiver, analyticsService, analyticsPersistence, liveAnalyticsService, objectMapper);
-        ReflectionTestUtils.setField(amqpConsumer, "queueName", "analytics.test.queue");
-        ReflectionTestUtils.setField(amqpConsumer, "timeoutMs", 100);
-        ReflectionTestUtils.setField(amqpConsumer, "concurrency", 1);
+        amqpConsumer = new AmqpConsumer(receiver, analyticsService, analyticsPersistence, liveAnalyticsService, objectMapper, rabbitAdmin, "analytics.test.queue", 1);
     }
 
     @Test
@@ -78,6 +78,7 @@ public class AmqpConsumerTest {
         amqpConsumer.start();
 
         // Assert
+        verify(liveAnalyticsService, timeout(2000)).ingestDevices(any());
         verify(analyticsService, timeout(2000)).calculateStats(any());
         verify(delivery, timeout(2000)).ack();
     }

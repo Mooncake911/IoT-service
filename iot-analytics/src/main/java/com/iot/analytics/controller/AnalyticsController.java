@@ -37,10 +37,10 @@ public class AnalyticsController {
     }
 
     @PostMapping("/config")
-    public Mono<String> setConfig(@RequestParam("method") String method, @RequestParam("batchSize") int batchSize) {
-        log.info("Updating analytics config: method={}, batchSize={}", method, batchSize);
-        analyticsService.setCalculationMethod(method, batchSize);
-        return Mono.just("Calculation method switched to: " + method + " (batch size: " + batchSize + ")");
+    public Mono<String> setConfig(@RequestParam("method") String method, @RequestParam("windowSeconds") int windowSeconds) {
+        log.info("Updating analytics config: method={}, windowSeconds={}", method, windowSeconds);
+        analyticsService.setCalculationMethod(method, windowSeconds);
+        return Mono.just("Calculation method switched to: " + method + " (window seconds: " + windowSeconds + ")");
     }
 
     @GetMapping("/status")
@@ -56,6 +56,11 @@ public class AnalyticsController {
     @GetMapping("/live/by-type")
     public Mono<Map<String, Object>> getLiveByType() {
         return Mono.just(liveAnalyticsService.getByType());
+    }
+
+    @GetMapping("/live/by-manufacturer")
+    public Mono<Map<String, Object>> getLiveByManufacturer() {
+        return Mono.just(liveAnalyticsService.getByManufacturer());
     }
 
     @GetMapping("/history")

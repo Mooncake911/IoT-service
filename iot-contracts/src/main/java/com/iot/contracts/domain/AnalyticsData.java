@@ -14,7 +14,6 @@ import java.util.Map;
 @Builder(toBuilder = true)
 @Jacksonized
 public record AnalyticsData(
-                long deviceId,
                 @NotNull @JsonFormat(shape = JsonFormat.Shape.STRING, timezone = "UTC") Instant timestamp,
                 @NotEmpty Map<String, Object> metrics) {
 }

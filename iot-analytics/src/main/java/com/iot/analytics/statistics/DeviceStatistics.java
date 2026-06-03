@@ -6,8 +6,6 @@ import com.iot.contracts.domain.DeviceData;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collector;
 
 public class DeviceStatistics {
@@ -35,8 +33,6 @@ public class DeviceStatistics {
         metrics.put("onlineDevices", (double) stats.onlineDevices);
         metrics.put("avgBatteryLevel", stats.totalBattery / (double) stats.totalDevices);
         metrics.put("avgSignalStrength", stats.totalSignal / (double) stats.totalDevices);
-        metrics.put("uniqueManufacturers", (double) stats.manufacturers.size());
-        metrics.put("uniqueTypes", (double) stats.types.size());
 
         return DeviceStats.builder().metrics(metrics).build();
     }
@@ -53,8 +49,6 @@ public class DeviceStatistics {
         private long onlineDevices;
         private long totalBattery;
         private long totalSignal;
-        private final Set<String> manufacturers = ConcurrentHashMap.newKeySet();
-        private final Set<String> types = ConcurrentHashMap.newKeySet();
 
         private void add(DeviceData deviceData) {
             totalDevices++;
@@ -65,13 +59,6 @@ public class DeviceStatistics {
                 totalBattery += deviceData.status().batteryLevel();
                 totalSignal += deviceData.status().signalStrength();
             }
-
-            if (deviceData.manufacturer() != null) {
-                manufacturers.add(deviceData.manufacturer());
-            }
-            if (deviceData.type() != null) {
-                types.add(deviceData.type().name());
-            }
         }
 
         private StatsAccumulator merge(StatsAccumulator other) {
@@ -79,8 +66,6 @@ public class DeviceStatistics {
             onlineDevices += other.onlineDevices;
             totalBattery += other.totalBattery;
             totalSignal += other.totalSignal;
-            manufacturers.addAll(other.manufacturers);
-            types.addAll(other.types);
             return this;
         }
     }

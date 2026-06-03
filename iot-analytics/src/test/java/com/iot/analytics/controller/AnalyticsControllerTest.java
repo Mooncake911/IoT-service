@@ -14,7 +14,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.List;
 
@@ -43,10 +42,26 @@ public class AnalyticsControllerTest {
         private ReportAnalyticsService reportAnalyticsService;
 
         @Test
+        public void getLiveByManufacturer_shouldReturnManufacturerDistribution() {
+                when(liveAnalyticsService.getByManufacturer()).thenReturn(Map.of(
+                                "timestamp", "2026-06-03T19:45:54Z",
+                                "manufacturers", Map.of("Acme", 10, "Omni", 5)));
+
+                webTestClient.get()
+                                .uri("/api/analytics/live/by-manufacturer")
+                                .exchange()
+                                .expectStatus().isOk()
+                                .expectBody()
+                                .jsonPath("$.manufacturers.Acme").isEqualTo(10)
+                                .jsonPath("$.manufacturers.Omni").isEqualTo(5);
+
+                verify(liveAnalyticsService).getByManufacturer();
+        }
+
+        @Test
         public void receiveData_shouldCallCalculateAndPublishStats() {
-                List<DeviceData> deviceData = Collections.singletonList(new DeviceData(1L, "Test", null, null, null, null, null));
+                List<DeviceData> deviceData = List.of(new DeviceData(1L, "Test", null, null, null, null, null));
                 when(analyticsService.calculateStats(any())).thenReturn(Mono.just(AnalyticsData.builder()
-                        .deviceId(1L)
                         .timestamp(java.time.Instant.now())
                         .metrics(Map.of("totalDevices", 1.0))
                         .build()));
@@ -64,18 +79,18 @@ public class AnalyticsControllerTest {
         @Test
         public void setConfig_shouldUpdateCalculationMethod() {
                 String method = "Parallel";
-                int batchSize = 25;
+                int windowSeconds = 25;
 
                 webTestClient.post()
                                 .uri(uriBuilder -> uriBuilder
                                                 .path("/api/analytics/config")
                                                 .queryParam("method", method)
-                                                .queryParam("batchSize", batchSize)
+                                                .queryParam("windowSeconds", windowSeconds)
                                                 .build())
                                 .exchange()
                                 .expectStatus().isOk();
 
-                verify(analyticsService).setCalculationMethod(eq(method), eq(batchSize));
+                verify(analyticsService).setCalculationMethod(eq(method), eq(windowSeconds));
         }
 }
 

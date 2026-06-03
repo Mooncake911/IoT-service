@@ -132,11 +132,12 @@ RabbitMQ-часть:
 HTTP API:
 
 - `POST /api/analytics/data`
-- `POST /api/analytics/config?method=<name>&batchSize=<n>`
+- `POST /api/analytics/config?method=<name>&windowSeconds=<n>`
 - `GET /api/analytics/status`
 - `GET /api/analytics/history?limit=<n>`
 - `GET /api/analytics/live/summary`
 - `GET /api/analytics/live/by-type`
+- `GET /api/analytics/live/by-manufacturer`
 - `GET /api/analytics/report/window?from=<iso>&to=<iso>`
 
 Поддерживаемые значения `method`:
@@ -155,8 +156,8 @@ HTTP API:
 
 Настройка расчётов:
 
-- Текущий метод и batch size хранятся в `AnalyticsService`.
-- Изменение конфигурации через `/api/analytics/config` меняет внутренние параметры и влияет на то, как consumer строит окна обработки.
+- Текущий метод и длительность окна хранятся в `AnalyticsService`.
+- Изменение конфигурации через `/api/analytics/config` меняет метод расчёта и длительность временного окна, по которому consumer строит агрегаты.
 
 ### `iot-alerts`
 
@@ -243,7 +244,7 @@ HTTP API:
 - читает статус analytics
 - меняет конфигурацию analytics
 - запрашивает историю analytics: `/api/analytics/history`
-- запрашивает live-аналитику: `/api/analytics/live/summary`, `/api/analytics/live/by-type`
+- запрашивает live-аналитику: `/api/analytics/live/summary`, `/api/analytics/live/by-type`, `/api/analytics/live/by-manufacturer`
 - запрашивает report-аналитику по окну: `/api/analytics/report/window`
 - запрашивает alerts: `/api/alerts`
 - управляет правилами alerts: `/api/alerts/rules`
@@ -410,6 +411,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
   - `/api/analytics/history`
   - `/api/analytics/live/summary`
   - `/api/analytics/live/by-type`
+  - `/api/analytics/live/by-manufacturer`
   - `/api/analytics/report/window`
   - `/api/alerts`
 

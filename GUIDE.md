@@ -63,10 +63,10 @@ docker exec -it rabbitmq rabbitmq-diagnostics -q check_running
 
 ## 4. Базовый E2E сценарий
 
-Настроить analytics (метод и batch size):
+Настроить analytics (метод и длительность окна):
 ```powershell
 # method: Sequential | Parallel
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/config?method=Parallel&batchSize=50" -Method Post
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/config?method=Parallel&windowSeconds=50" -Method Post
 Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/status" -Method Get
 ```
 
@@ -91,6 +91,7 @@ Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/status" -Method G
 Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/history?limit=20" -Method Get
 Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/summary" -Method Get
 Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/by-type" -Method Get
+Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/by-manufacturer" -Method Get
 $to = [DateTime]::UtcNow
 $from = $to.AddMinutes(-10)
 $fromIso = $from.ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -185,4 +186,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
 Smoke-check теперь валидирует не только ingest/history/alerts, но и новые ручки:
 - `/api/v1/analytics/live/summary`
 - `/api/v1/analytics/live/by-type`
+- `/api/v1/analytics/live/by-manufacturer`
 - `/api/v1/analytics/report/window`

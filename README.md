@@ -368,8 +368,8 @@ Prometheus собирает метрики по HTTP, Grafana визуализи
 1. Пользователь открывает dashboard.
 2. Dashboard отправляет `POST /api/analytics/config?...` в gateway.
 3. Gateway проксирует запрос в `iot-analytics`.
-4. `AnalyticsService` меняет метод расчёта и размер батча.
-5. Новый конфиг начинает влиять на последующие reactive batch окна consumer-а.
+4. `AnalyticsService` меняет метод расчёта и длительность временного окна.
+5. Новый конфиг начинает влиять на последующие окна consumer-а.
 
 ### Сценарий 3. Пользователь управляет генерацией
 

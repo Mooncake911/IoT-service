@@ -1,5 +1,4 @@
 **/.terraform/*
-*.tfstate
 *.tfstate.*
 crash.log
 crash.*.log
@@ -13,5 +12,5 @@ override.tf.json
 .terraformrc
 terraform.rc
 
-# CI/CD Secrets
+# Secrets
 *key.json

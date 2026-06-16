@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/iot-alerts/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-alerts/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-analytics/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-analytics/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-contracts/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-contracts/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-controller/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-controller/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-data-gateway/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-data-gateway/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-data-simulator/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-data-simulator/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-rule-engine/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/iot-rule-engine/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/shared/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/shared/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
+  </component>
+</project>

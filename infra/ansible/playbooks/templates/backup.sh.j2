@@ -1,0 +1,48 @@
+#!/bin/bash
+# Daily backup script for IoT microservices MongoDB databases
+
+DEPLOY_DIR="{{ deploy_dir }}"
+BACKUP_DIR="$DEPLOY_DIR/backups"
+TIMESTAMP=$(date +"%Y%m%dT%H%M%S")
+BUCKET="{{ backup_bucket_name }}"
+ACCESS_KEY="{{ backup_storage_access_key }}"
+SECRET_KEY="{{ backup_storage_secret_key }}"
+
+echo "=== Starting daily MongoDB backup at $(date) ==="
+
+# Create backup folder if it does not exist
+mkdir -p "$BACKUP_DIR"
+
+# Perform MongoDB dumps
+if [ "$(docker ps -q -f name=mongodb-controller)" ]; then
+  echo "Dumping mongodb-controller..."
+  docker exec mongodb-controller mongodump --archive --gzip > "$BACKUP_DIR/controller_daily_$TIMESTAMP.archive"
+fi
+if [ "$(docker ps -q -f name=mongodb-analytics)" ]; then
+  echo "Dumping mongodb-analytics..."
+  docker exec mongodb-analytics mongodump --archive --gzip > "$BACKUP_DIR/analytics_daily_$TIMESTAMP.archive"
+fi
+if [ "$(docker ps -q -f name=mongodb-alerts)" ]; then
+  echo "Dumping mongodb-alerts..."
+  docker exec mongodb-alerts mongodump --archive --gzip > "$BACKUP_DIR/alerts_daily_$TIMESTAMP.archive"
+fi
+
+# Sync to Yandex Object Storage (S3) using AWS CLI Docker image
+if [ -n "$BUCKET" ] && [ -n "$ACCESS_KEY" ] && [ -n "$SECRET_KEY" ]; then
+  echo "Uploading backups to Yandex Object Storage bucket: $BUCKET..."
+  docker run --rm \
+    -v "$BACKUP_DIR:/backups" \
+    -e AWS_ACCESS_KEY_ID="$ACCESS_KEY" \
+    -e AWS_SECRET_ACCESS_KEY="$SECRET_KEY" \
+    amazon/aws-cli:2.15.15 \
+    --endpoint-url=https://storage.yandexcloud.net \
+    s3 cp /backups/ s3://$BUCKET/backups/ --recursive
+else
+  echo "Warning: S3 credentials are not configured, skipping upload."
+fi
+
+# Clean up local backups older than 7 days to save disk space
+echo "Cleaning up local backups older than 7 days..."
+find "$BACKUP_DIR" -type f -name "*.archive" -mtime +7 -delete
+
+echo "=== Backup complete at $(date) ==="

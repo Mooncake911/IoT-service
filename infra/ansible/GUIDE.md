@@ -1,0 +1,1 @@
+ansible-playbook playbooks/install-docker.yml -i inventory.ini

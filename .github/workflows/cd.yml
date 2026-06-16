@@ -1,0 +1,223 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform (deploy or rollback)"
+        required: true
+        default: "deploy"
+        type: choice
+        options:
+          - deploy
+          - rollback
+      tag:
+        description: "Target tag to deploy/rollback (leave empty to use commit SHA/previous version)"
+        required: false
+        default: ""
+      run_terraform:
+        description: "Run Terraform apply before deploy?"
+        required: true
+        default: false
+        type: boolean
+      run_ansible_setup:
+        description: "Run Ansible Docker installation?"
+        required: true
+        default: false
+        type: boolean
+      enable_observability:
+        description: "Deploy observability stack (ELK + Prometheus + Grafana)?"
+        required: true
+        default: false
+        type: boolean
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Deploy to Yandex Cloud
+    runs-on: ubuntu-latest
+    # Run automatically on successful CI on master branch, or when manually triggered
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Parse inputs & set environment
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "ACTION=deploy" >> $GITHUB_ENV
+            echo "TAG=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
+            echo "RUN_TERRAFORM=false" >> $GITHUB_ENV
+            echo "RUN_ANSIBLE_SETUP=false" >> $GITHUB_ENV
+            echo "ENABLE_OBSERVABILITY=false" >> $GITHUB_ENV
+          else
+            echo "ACTION=${{ github.event.inputs.action }}" >> $GITHUB_ENV
+            
+            TAG_INPUT="${{ github.event.inputs.tag }}"
+            if [ -z "$TAG_INPUT" ]; then
+              TAG_INPUT="${{ github.sha }}"
+            fi
+            echo "TAG=$TAG_INPUT" >> $GITHUB_ENV
+            echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}" >> $GITHUB_ENV
+            echo "RUN_ANSIBLE_SETUP=${{ github.event.inputs.run_ansible_setup }}" >> $GITHUB_ENV
+            echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}" >> $GITHUB_ENV
+          fi
+
+      - name: Setup Terraform
+        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.5"
+
+      - name: Save Yandex Service Account Key
+        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
+        run: |
+          echo '${{ secrets.YC_SA_KEY_JSON }}' > /tmp/yc-sa-key.json
+          echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> $GITHUB_ENV
+
+      - name: Verify service account key file
+        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
+        run: |
+          cat /tmp/yc-sa-key.json | jq . > /dev/null
+          echo "✅ Key file is valid JSON"
+
+      - name: Run Terraform Apply
+        id: terraform
+        if: ${{ env.RUN_TERRAFORM == 'true' }}
+        working-directory: infra/terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
+            -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+          terraform apply -auto-approve \
+            -var="yc_cloud_id=${{ secrets.YC_CLOUD_ID }}" \
+            -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
+            -var="yc_service_account_key_file=/tmp/yc-sa-key.json" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+
+      - name: Determine VM IP
+        id: get-ip
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+        run: |
+          if [ -n "${{ vars.VM_IP }}" ]; then
+            echo "VM_IP=${{ vars.VM_IP }}" >> $GITHUB_ENV
+          else
+            cd infra/terraform
+            # If TF was not initialized in this run, initialize it to query output
+            if [ ! -d ".terraform" ]; then
+              terraform init -input=false \
+                -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
+                -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+            fi
+            IP=$(terraform output -raw public_ip)
+            echo "VM_IP=$IP" >> $GITHUB_ENV
+          fi
+
+      - name: Get Backup Storage Details from Terraform
+        id: get-backup-details
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+        run: |
+          cd infra/terraform
+          # If TF was not initialized in this run, initialize it to query output
+          if [ ! -d ".terraform" ]; then
+            terraform init -input=false \
+              -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
+              -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+          fi
+          BACKUP_BUCKET=$(terraform output -raw backup_bucket_name 2>/dev/null || echo "")
+          BACKUP_ACCESS_KEY=$(terraform output -raw backup_storage_access_key 2>/dev/null || echo "")
+          BACKUP_SECRET_KEY=$(terraform output -raw backup_storage_secret_key 2>/dev/null || echo "")
+          
+          if [ -n "$BACKUP_SECRET_KEY" ]; then
+            echo "::add-mask::$BACKUP_SECRET_KEY"
+          fi
+          if [ -n "$BACKUP_ACCESS_KEY" ]; then
+            echo "::add-mask::$BACKUP_ACCESS_KEY"
+          fi
+          
+          echo "BACKUP_BUCKET=$BACKUP_BUCKET" >> $GITHUB_ENV
+          echo "BACKUP_ACCESS_KEY=$BACKUP_ACCESS_KEY" >> $GITHUB_ENV
+          echo "BACKUP_SECRET_KEY=$BACKUP_SECRET_KEY" >> $GITHUB_ENV
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Wait for VM SSH connection
+        run: |
+          echo "Checking SSH connectivity to ${{ env.VM_IP }}..."
+          for i in {1..30}; do
+            nc -z -w5 ${{ env.VM_IP }} 22 && echo "SSH is open!" && break
+            echo "Waiting for SSH to be ready (attempt $i/30)..."
+            sleep 10
+          done
+
+      - name: Install Ansible
+        run: |
+          pipx install ansible-core
+          pipx inject ansible-core ansible-compat
+          ansible-galaxy collection install community.docker
+
+      - name: Generate Ansible Inventory
+        run: |
+          cat <<EOF > infra/ansible/inventory.ini
+          [iot_vm]
+          ${{ env.VM_IP }} ansible_user=ubuntu
+          
+          [iot_vm:vars]
+          ansible_ssh_private_key_file=~/.ssh/id_ed25519
+          ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+          EOF
+
+      - name: Run Ansible Docker installation
+        if: ${{ env.RUN_ANSIBLE_SETUP == 'true' }}
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook playbooks/install-docker.yml -i inventory.ini
+
+      - name: Run Ansible Application Deployment
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook playbooks/deploy.yml -i inventory.ini\
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
+
+      - name: Post-deploy verification of running containers
+        run: |
+          echo "Listing active docker containers on target VM..."
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+          
+          RUNNING_COUNT=$(ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --filter status=running -q | wc -l")
+          
+          if [ "${{ env.ENABLE_OBSERVABILITY }}" = "true" ]; then
+            EXPECTED=15
+          else
+            EXPECTED=10
+          fi
+          
+          echo "Running containers count: $RUNNING_COUNT"
+          echo "Expected containers count: $EXPECTED"
+          
+          if [ "$RUNNING_COUNT" -lt "$EXPECTED" ]; then
+            echo "ERROR: Some containers did not start correctly! Total running containers ($RUNNING_COUNT) is less than expected ($EXPECTED)."
+            exit 1
+          fi

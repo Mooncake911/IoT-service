@@ -1,0 +1,5 @@
+yc_cloud_id    = "replace-me"
+yc_folder_id   = "replace-me"
+yc_service_account_key_file = "replace-me"
+ssh_public_key = "ssh-ed25519 <your-public-key> user@example.com"
+allowed_cidrs  = ["0.0.0.0/0"]

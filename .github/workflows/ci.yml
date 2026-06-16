@@ -2,9 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "master", "main" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   server-build:
@@ -21,24 +26,7 @@ jobs:
           java-version: "24"
           cache: maven
 
-      - name: Build server modules
-        run: ./mvnw -B -ntp clean package -DskipTests
-
-  server-test:
-    name: Server Test (Maven)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up JDK 24
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "24"
-          cache: maven
-
-      - name: Run server tests
+      - name: Run Maven tests
         run: ./mvnw -B -ntp test
 
   client-build:
@@ -60,33 +48,84 @@ jobs:
           cache: "npm"
           cache-dependency-path: iot-dashboard/package-lock.json
 
-      - name: Install dashboard dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build dashboard package
-        run: npm run build
+      - name: Build and test dashboard
+        run: |
+          npm run build
+          npm run test --if-present
 
-  client-test:
-    name: Client Test (Dashboard)
+  build-and-push:
+    name: Build & Push Images
+    needs: [server-build, client-build]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: iot-dashboard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: iot-controller
+            context: .
+            dockerfile: ./Dockerfile
+            target: iot-controller
+
+          - service: iot-analytics
+            context: .
+            dockerfile: ./Dockerfile
+            target: iot-analytics
+
+          - service: iot-alerts
+            context: .
+            dockerfile: ./Dockerfile
+            target: iot-alerts
+
+          - service: iot-data-gateway
+            context: .
+            dockerfile: ./Dockerfile
+            target: iot-data-gateway
+
+          - service: iot-data-simulator
+            context: .
+            dockerfile: ./Dockerfile
+            target: iot-data-simulator
+
+          - service: iot-dashboard-ui
+            context: ./iot-dashboard
+            dockerfile: ./iot-dashboard/Dockerfile
+            target: dashboard-ui
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           submodules: recursive
 
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: iot-dashboard/package-lock.json
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install dashboard dependencies (with dev)
-        run: npm ci
+      - name: Set lowercased repo owner env
+        run: |
+          echo "OWNER_LC=${OWNER,,}" >> $GITHUB_ENV
+        env:
+          OWNER: ${{ github.repository_owner }}
 
-      - name: Run dashboard tests
-        run: npm run test --if-present
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          build-args: |
+            SERVICE_NAME=${{ matrix.service }}
+          push: ${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:latest

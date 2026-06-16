@@ -37,7 +37,7 @@ services:
       target: iot-data-gateway
       args:
         SERVICE_NAME: iot-data-gateway
-    image: iot-data-gateway:latest
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-data-gateway:${TAG}
     container_name: iot-data-gateway
     ports:
       - "${GATEWAY_PORT}:${SPRING_INTERNAL_PORT}"
@@ -71,7 +71,7 @@ services:
       target: iot-analytics
       args:
         SERVICE_NAME: iot-analytics
-    image: iot-analytics:latest
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-analytics:${TAG}
     container_name: iot-analytics
     stop_grace_period: 30s
     ports:
@@ -99,7 +99,7 @@ services:
       target: iot-controller
       args:
         SERVICE_NAME: iot-controller
-    image: iot-controller:latest
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-controller:${TAG}
     container_name: iot-controller
     stop_grace_period: 30s
     ports:
@@ -127,7 +127,7 @@ services:
       target: iot-alerts
       args:
         SERVICE_NAME: iot-alerts
-    image: iot-alerts:latest
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-alerts:${TAG}
     container_name: iot-alerts
     stop_grace_period: 30s
     ports:
@@ -155,7 +155,7 @@ services:
       target: iot-data-simulator
       args:
         SERVICE_NAME: iot-data-simulator
-    image: iot-data-simulator:latest
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-data-simulator:${TAG}
     container_name: iot-data-simulator
     stop_grace_period: 30s
     ports:
@@ -179,7 +179,7 @@ services:
       context: ./iot-dashboard
       dockerfile: Dockerfile
       target: dashboard-ui
-    image: iot-dashboard-ui:latest
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-dashboard-ui:${TAG}
     container_name: iot-dashboard-ui
     stop_grace_period: 30s
     ports:

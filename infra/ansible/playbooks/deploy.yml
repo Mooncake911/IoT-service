@@ -1,0 +1,307 @@
+- name: Deploy IoT microservices
+  hosts: iot_vm
+  become: false
+
+  vars:
+    deploy_dir: /home/ubuntu/iot-service
+    github_owner: ""
+    registry_username: ""
+    registry_password: ""
+    app_version: "latest"
+    action: "deploy"
+    enable_observability: false
+    backup_bucket_name: ""
+    backup_storage_access_key: ""
+    backup_storage_secret_key: ""
+
+  tasks:
+    # ========================================================================
+    # 1. AUTHENTICATION
+    # ========================================================================
+    - name: Log in to GHCR
+      community.docker.docker_login:
+        registry_url: ghcr.io
+        username: "{{ registry_username }}"
+        password: "{{ registry_password }}"
+      when: registry_password != ""
+      no_log: true
+
+    # ========================================================================
+    # 2. DEPLOYMENT DIRECTORY
+    # ========================================================================
+    - name: Create deployment directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}"
+        state: directory
+        mode: "0755"
+
+    # ========================================================================
+    # 3. VERSION MANAGEMENT (Deploy & Rollback)
+    # ========================================================================
+    - name: Check if .env exists
+      ansible.builtin.stat:
+        path: "{{ deploy_dir }}/.env"
+      register: env_file
+
+    - name: Read current tag from .env
+      ansible.builtin.shell: |
+        grep -E '^TAG=' "{{ deploy_dir }}/.env" | cut -d'=' -f2
+      register: current_tag_output
+      when: env_file.stat.exists
+      failed_when: false
+      changed_when: false
+
+    - name: Save current version to .previous_version
+      ansible.builtin.copy:
+        content: "{{ current_tag_output.stdout | trim }}"
+        dest: "{{ deploy_dir }}/.previous_version"
+        mode: "0644"
+      when: env_file.stat.exists and current_tag_output.stdout | trim != ""
+
+    - name: Check if .previous_version exists
+      ansible.builtin.stat:
+        path: "{{ deploy_dir }}/.previous_version"
+      register: prev_ver_file
+      when: action == 'rollback'
+
+    - name: Fail if rollback requested but no previous version
+      ansible.builtin.fail:
+        msg: "No previous version found on the server. Please specify a tag to deploy."
+      when: action == 'rollback' and not prev_ver_file.stat.exists and (app_version == 'latest' or app_version == '')
+
+    - name: Read previous version
+      ansible.builtin.slurp:
+        src: "{{ deploy_dir }}/.previous_version"
+      register: slurped_prev_version
+      when: action == 'rollback' and prev_ver_file.stat.exists and (app_version == 'latest' or app_version == '')
+
+    - name: Set rollback version fact
+      ansible.builtin.set_fact:
+        rollback_version: "{{ slurped_prev_version['content'] | b64decode | trim }}"
+      when: action == 'rollback' and prev_ver_file.stat.exists and (app_version == 'latest' or app_version == '')
+
+    - name: Set target version to deploy
+      ansible.builtin.set_fact:
+        target_version: "{{ rollback_version if (action == 'rollback' and rollback_version is defined) else app_version }}"
+
+    # ========================================================================
+    # 4. BACKUP BEFORE DEPLOY (MongoDB)
+    # ========================================================================
+    - name: Create backup directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/backups"
+        state: directory
+        mode: "0755"
+
+    - name: Get running MongoDB containers
+      ansible.builtin.shell: |
+        docker ps --filter "name=mongodb" --format "{{ '{{.Names}}' }}"
+      register: mongodb_containers
+      changed_when: false
+      when: env_file.stat.exists
+
+    - name: Dump each MongoDB container
+      ansible.builtin.shell: |
+        docker exec {{ item }} mongodump --archive --gzip > "{{ deploy_dir }}/backups/{{ item }}_{{ ansible_date_time.iso8601_basic_short }}.archive"
+      loop: "{{ mongodb_containers.stdout_lines }}"
+      when:
+        - env_file.stat.exists
+        - mongodb_containers.stdout_lines | length > 0
+      register: dump_results
+      changed_when: true
+
+    - name: Upload MongoDB backups to Yandex Object Storage
+      ansible.builtin.shell: |
+        docker run --rm \
+          -v "{{ deploy_dir }}/backups:/backups" \
+          -e AWS_ACCESS_KEY_ID="{{ backup_storage_access_key }}" \
+          -e AWS_SECRET_ACCESS_KEY="{{ backup_storage_secret_key }}" \
+          amazon/aws-cli:2.15.15 \
+          --endpoint-url=https://storage.yandexcloud.net \
+          s3 cp /backups/ s3://{{ backup_bucket_name }}/backups/ --recursive --quiet
+      when:
+        - env_file.stat.exists
+        - backup_bucket_name | default('') != ''
+        - backup_storage_access_key | default('') != ''
+        - backup_storage_secret_key | default('') != ''
+        - mongodb_containers.stdout_lines | length > 0
+      register: upload_result
+      failed_when: "'upload: failed' in upload_result.stderr or upload_result.rc != 0"
+      changed_when: true
+
+    # ========================================================================
+    # 5. CONFIGURE BACKUP CRON JOB
+    # ========================================================================
+    - name: Create scripts directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/scripts"
+        state: directory
+        mode: "0755"
+
+    - name: Template daily backup script
+      ansible.builtin.template:
+        src: backup.sh.j2
+        dest: "{{ deploy_dir }}/scripts/backup.sh"
+        mode: "0755"
+      when:
+        - backup_bucket_name | default('') != ''
+        - backup_storage_access_key | default('') != ''
+        - backup_storage_secret_key | default('') != ''
+
+    - name: Schedule daily MongoDB backup cron job
+      ansible.builtin.cron:
+        name: "Daily MongoDB backup"
+        minute: "0"
+        hour: "2"
+        job: "/bin/bash {{ deploy_dir }}/scripts/backup.sh >> {{ deploy_dir }}/backups/backup.log 2>&1"
+      when:
+        - backup_bucket_name | default('') != ''
+        - backup_storage_access_key | default('') != ''
+        - backup_storage_secret_key | default('') != ''
+
+    # ========================================================================
+    # 6. DEPLOYMENT (with automatic rollback on failure)
+    # ========================================================================
+    - name: Deploy services
+      block:
+
+        # 6.1 Copy configuration files
+        - name: Copy monitoring configuration directory
+          ansible.builtin.copy:
+            src: "../../../monitoring"
+            dest: "{{ deploy_dir }}/"
+            mode: "0755"
+
+        - name: Copy ELK configuration directory
+          ansible.builtin.copy:
+            src: "../../../elk"
+            dest: "{{ deploy_dir }}/"
+            mode: "0755"
+
+        - name: Copy docker-compose.yml
+          ansible.builtin.copy:
+            src: "../../../docker-compose.yml"
+            dest: "{{ deploy_dir }}/docker-compose.yml"
+            mode: "0644"
+
+        - name: Copy base .env file
+          ansible.builtin.copy:
+            src: "../../../.env"
+            dest: "{{ deploy_dir }}/.env"
+            mode: "0600"
+
+        - name: Configure Registry in .env
+          ansible.builtin.lineinfile:
+            path: "{{ deploy_dir }}/.env"
+            regexp: "^REGISTRY="
+            line: "REGISTRY=ghcr.io"
+
+        - name: Configure Image Namespace in .env
+          ansible.builtin.lineinfile:
+            path: "{{ deploy_dir }}/.env"
+            regexp: "^IMAGE_NAMESPACE="
+            line: "IMAGE_NAMESPACE={{ github_owner | lower }}/iot-service"
+
+        - name: Configure Tag in .env
+          ansible.builtin.lineinfile:
+            path: "{{ deploy_dir }}/.env"
+            regexp: "^TAG="
+            line: "TAG={{ target_version }}"
+
+        # 6.2 Pull images
+        - name: Pull target Docker images
+          ansible.builtin.shell: |
+            docker compose pull
+          args:
+            chdir: "{{ deploy_dir }}"
+          changed_when: true
+
+        # 6.3 Start or update services
+        - name: Start services (with observability)
+          ansible.builtin.shell: |
+            docker compose --profile observability up -d --remove-orphans
+          args:
+            chdir: "{{ deploy_dir }}"
+          when: enable_observability | bool
+          changed_when: true
+
+        - name: Start services (core only)
+          ansible.builtin.shell: |
+            docker compose up -d --remove-orphans
+          args:
+            chdir: "{{ deploy_dir }}"
+          when: not (enable_observability | bool)
+          changed_when: true
+
+        # 6.4 Health check
+        - name: Wait for API Gateway health check
+          ansible.builtin.uri:
+            url: "http://localhost:8085/api/v1/analytics/status"
+            status_code: 200
+          register: gateway_health
+          until: gateway_health.status == 200
+          retries: 60
+          delay: 10
+
+      rescue:
+        # ====================================================================
+        # 7. AUTOMATIC ROLLBACK ON FAILURE
+        # ====================================================================
+        - name: 🚨 Deployment failed! Starting rollback...
+          ansible.builtin.debug:
+            msg: "Rolling back to previous version: {{ rollback_version if rollback_version is defined else 'unknown' }}"
+
+        - name: Rollback to previous version
+          ansible.builtin.shell: |
+            export TAG=$(cat {{ deploy_dir }}/.previous_version)
+            docker compose up -d --remove-orphans
+          args:
+            chdir: "{{ deploy_dir }}"
+          when: prev_ver_file.stat.exists
+
+        - name: Wait for API Gateway after rollback
+          ansible.builtin.uri:
+            url: "http://localhost:8085/api/v1/analytics/status"
+            status_code: 200
+          register: rollback_health
+          until: rollback_health.status == 200
+          retries: 60
+          delay: 10
+
+        - name: Rollback complete
+          ansible.builtin.debug:
+            msg: "✅ Rollback completed successfully"
+
+        - name: Fail the playbook with rollback message
+          ansible.builtin.fail:
+            msg: "Deployment failed and rollback was performed. Please check the logs."
+
+    # ========================================================================
+    # 8. POST-DEPLOYMENT VERIFICATION
+    # ========================================================================
+    - name: Post-deployment verification
+      block:
+        - name: List running containers
+          ansible.builtin.shell: |
+            docker ps --format "table {{ '{{.Names}}' }}\t{{ '{{.Status}}' }}"
+          register: running_containers
+          changed_when: false
+
+        - name: Show running containers
+          ansible.builtin.debug:
+            var: running_containers.stdout_lines
+
+        - name: Check expected container count
+          ansible.builtin.shell: |
+            docker ps -q | wc -l
+          register: container_count
+          changed_when: false
+
+        - name: Verify minimum container count
+          ansible.builtin.assert:
+            that:
+              - container_count.stdout | int >= 5
+            fail_msg: "Too few containers running ({{ container_count.stdout }}). Deployment may have failed."
+            success_msg: "✅ At least 5 containers are running"
+
+      when: not ansible_check_mode

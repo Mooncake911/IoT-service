@@ -210,9 +210,12 @@
         # 6.2 Pull images
         - name: Pull target Docker images
           ansible.builtin.shell: |
-            docker compose pull
+            COMPOSE_PARALLEL_LIMIT=2 docker compose --progress plain pull --include-deps
           args:
             chdir: "{{ deploy_dir }}"
+          async: 3600
+          poll: 20
+          register: pull_result
           changed_when: true
 
         # 6.3 Start or update services

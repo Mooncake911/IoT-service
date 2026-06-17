@@ -186,7 +186,9 @@ jobs:
           
           [iot_vm:vars]
           ansible_ssh_private_key_file=~/.ssh/id_ed25519
-          ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+          ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes'
+          ansible_ssh_timeout=60
+          ansible_ssh_retries=5
           EOF
 
       - name: Run Ansible Docker installation

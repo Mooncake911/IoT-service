@@ -199,7 +199,7 @@ jobs:
         working-directory: infra/ansible
         run: |
           ansible-playbook playbooks/deploy.yml -i inventory.ini\
-            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
 
       - name: Post-deploy verification of running containers
         run: |

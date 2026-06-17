@@ -8,7 +8,7 @@
     registry_username: ""
     registry_password: ""
     app_version: "latest"
-    action: "deploy"
+    deploy_action: "deploy"
     enable_observability: false
     backup_bucket_name: ""
     backup_storage_access_key: ""
@@ -62,27 +62,26 @@
       ansible.builtin.stat:
         path: "{{ deploy_dir }}/.previous_version"
       register: prev_ver_file
-      when: action == 'rollback'
 
     - name: Fail if rollback requested but no previous version
       ansible.builtin.fail:
         msg: "No previous version found on the server. Please specify a tag to deploy."
-      when: action == 'rollback' and not prev_ver_file.stat.exists and (app_version == 'latest' or app_version == '')
+      when: deploy_action == 'rollback' and not (prev_ver_file.stat.exists | default(false)) and (app_version == 'latest' or app_version == '')
 
     - name: Read previous version
       ansible.builtin.slurp:
         src: "{{ deploy_dir }}/.previous_version"
       register: slurped_prev_version
-      when: action == 'rollback' and prev_ver_file.stat.exists and (app_version == 'latest' or app_version == '')
+      when: deploy_action == 'rollback' and (prev_ver_file.stat.exists | default(false)) and (app_version == 'latest' or app_version == '')
 
     - name: Set rollback version fact
       ansible.builtin.set_fact:
         rollback_version: "{{ slurped_prev_version['content'] | b64decode | trim }}"
-      when: action == 'rollback' and prev_ver_file.stat.exists and (app_version == 'latest' or app_version == '')
+      when: deploy_action == 'rollback' and (prev_ver_file.stat.exists | default(false)) and (app_version == 'latest' or app_version == '')
 
     - name: Set target version to deploy
       ansible.builtin.set_fact:
-        target_version: "{{ rollback_version if (action == 'rollback' and rollback_version is defined) else app_version }}"
+        target_version: "{{ rollback_version if (deploy_action == 'rollback' and rollback_version is defined) else app_version }}"
 
     # ========================================================================
     # 4. BACKUP BEFORE DEPLOY (MongoDB)
@@ -186,7 +185,7 @@
 
         - name: Copy base .env file
           ansible.builtin.copy:
-            src: "../../../.env"
+            src: "{{ playbook_dir }}/../../../.env.example"
             dest: "{{ deploy_dir }}/.env"
             mode: "0600"
 
@@ -257,7 +256,8 @@
             docker compose up -d --remove-orphans
           args:
             chdir: "{{ deploy_dir }}"
-          when: prev_ver_file.stat.exists
+          when: prev_ver_file.stat.exists | default(false)
+          register: rollback_result
 
         - name: Wait for API Gateway after rollback
           ansible.builtin.uri:
@@ -267,14 +267,16 @@
           until: rollback_health.status == 200
           retries: 60
           delay: 10
+          when: rollback_result is changed
 
         - name: Rollback complete
           ansible.builtin.debug:
             msg: "✅ Rollback completed successfully"
+          when: rollback_result is changed
 
         - name: Fail the playbook with rollback message
           ansible.builtin.fail:
-            msg: "Deployment failed and rollback was performed. Please check the logs."
+            msg: "{{ 'Deployment failed and rollback was performed. Please check the logs.' if rollback_result is changed else 'Deployment failed and no previous version was available for automatic rollback. Please check the logs.' }}"
 
     # ========================================================================
     # 8. POST-DEPLOYMENT VERIFICATION

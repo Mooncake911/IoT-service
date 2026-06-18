@@ -385,7 +385,7 @@ jobs:
     needs:
       - changes
       - build-and-push
-    if: ${{ always() && github.event_name == 'push' && needs.changes.outputs.has_retags == 'true' && needs.build-and-push.result == 'success' }}
+    if: ${{ always() && needs.changes.outputs.has_retags == 'true' && needs.build-and-push.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

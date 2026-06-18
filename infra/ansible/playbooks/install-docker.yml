@@ -38,13 +38,16 @@
         force: true
 
     - name: Add Docker repository
-      ansible.builtin.apt_repository:
-        repo: >-
-          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
-          https://download.docker.com/linux/ubuntu
-          {{ ansible_facts['distribution_release'] }} stable
-        state: present
+      ansible.builtin.deb822_repository:
         filename: docker
+        repository: |
+          Types: deb
+          URIs: https://download.docker.com/linux/ubuntu
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: stable
+          Architectures: amd64
+          Signed-By: /etc/apt/keyrings/docker.asc
+        state: present
 
     # ========================================================================
     # 3. INSTALL DOCKER ENGINE

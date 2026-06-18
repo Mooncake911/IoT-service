@@ -185,7 +185,7 @@
 
         - name: Copy base .env file
           ansible.builtin.copy:
-            src: "{{ playbook_dir }}/../../../.env.example"
+            src: "{{ playbook_dir }}/../../../.env"
             dest: "{{ deploy_dir }}/.env"
             mode: "0600"
 

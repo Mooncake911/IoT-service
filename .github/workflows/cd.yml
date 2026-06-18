@@ -31,7 +31,7 @@ on:
         default: false
         type: boolean
   workflow_run:
-    workflows: ["CI"]
+    workflows: [ "CI" ]
     types:
       - completed
     branches:
@@ -41,14 +41,46 @@ on:
 permissions:
   contents: read
   packages: read
+  actions: read
 
 jobs:
+  deploy-gate:
+    name: Deploy Gate
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.result.outputs.should_deploy }}
+    steps:
+      - name: Download CI deploy metadata
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-deploy-metadata
+          path: ci-deploy-metadata
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide whether to deploy
+        id: result
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -f ci-deploy-metadata/deploy.env ]; then
+            source ci-deploy-metadata/deploy.env
+            echo "should_deploy=${should_deploy:-false}" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
     name: Deploy to Yandex Cloud
+    needs: deploy-gate
     runs-on: ubuntu-latest
-    # Run automatically on successful CI on master branch, or when manually triggered
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
-    
+    if: ${{ needs.deploy-gate.outputs.should_deploy == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')) }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,7 +95,7 @@ jobs:
             echo "ENABLE_OBSERVABILITY=false" >> $GITHUB_ENV
           else
             echo "ACTION=${{ github.event.inputs.action }}" >> $GITHUB_ENV
-            
+
             TAG_INPUT="${{ github.event.inputs.tag }}"
             if [ -z "$TAG_INPUT" ]; then
               TAG_INPUT="${{ github.sha }}"
@@ -145,14 +177,14 @@ jobs:
           BACKUP_BUCKET=$(terraform output -raw backup_bucket_name 2>/dev/null || echo "")
           BACKUP_ACCESS_KEY=$(terraform output -raw backup_storage_access_key 2>/dev/null || echo "")
           BACKUP_SECRET_KEY=$(terraform output -raw backup_storage_secret_key 2>/dev/null || echo "")
-          
+
           if [ -n "$BACKUP_SECRET_KEY" ]; then
             echo "::add-mask::$BACKUP_SECRET_KEY"
           fi
           if [ -n "$BACKUP_ACCESS_KEY" ]; then
             echo "::add-mask::$BACKUP_ACCESS_KEY"
           fi
-          
+
           echo "BACKUP_BUCKET=$BACKUP_BUCKET" >> $GITHUB_ENV
           echo "BACKUP_ACCESS_KEY=$BACKUP_ACCESS_KEY" >> $GITHUB_ENV
           echo "BACKUP_SECRET_KEY=$BACKUP_SECRET_KEY" >> $GITHUB_ENV
@@ -183,7 +215,7 @@ jobs:
           cat <<EOF > infra/ansible/inventory.ini
           [iot_vm]
           ${{ env.VM_IP }} ansible_user=ubuntu
-          
+
           [iot_vm:vars]
           ansible_ssh_private_key_file=~/.ssh/id_ed25519
           ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes'
@@ -200,25 +232,25 @@ jobs:
       - name: Run Ansible Application Deployment
         working-directory: infra/ansible
         run: |
-          ansible-playbook playbooks/deploy.yml -i inventory.ini\
+          ansible-playbook playbooks/deploy.yml -i inventory.ini \
             --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
 
       - name: Post-deploy verification of running containers
         run: |
           echo "Listing active docker containers on target VM..."
           ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --format 'table {{.Names}}\t{{.Status}}'"
-          
+
           RUNNING_COUNT=$(ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --filter status=running -q | wc -l")
-          
+
           if [ "${{ env.ENABLE_OBSERVABILITY }}" = "true" ]; then
             EXPECTED=15
           else
             EXPECTED=10
           fi
-          
+
           echo "Running containers count: $RUNNING_COUNT"
           echo "Expected containers count: $EXPECTED"
-          
+
           if [ "$RUNNING_COUNT" -lt "$EXPECTED" ]; then
             echo "ERROR: Some containers did not start correctly! Total running containers ($RUNNING_COUNT) is less than expected ($EXPECTED)."
             exit 1

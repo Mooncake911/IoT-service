@@ -99,13 +99,40 @@
       changed_when: false
       when: env_file.stat.exists
 
-    - name: Dump each MongoDB container
+    - name: Read MongoDB username from .env
       ansible.builtin.shell: |
-        docker exec {{ item }} mongodump --archive --gzip > "{{ deploy_dir }}/backups/{{ item }}_{{ ansible_date_time.iso8601_basic_short }}.archive"
+        grep '^MONGO_USER=' "{{ deploy_dir }}/.env" | cut -d '=' -f2
+      register: mongo_user_raw
+      when: env_file.stat.exists
+      changed_when: false
+
+    - name: Read MongoDB password from .env
+      ansible.builtin.shell: |
+        grep '^MONGO_PASS=' "{{ deploy_dir }}/.env" | cut -d '=' -f2
+      register: mongo_pass_raw
+      when: env_file.stat.exists
+      changed_when: false
+
+    - name: Set MongoDB credentials as facts
+      ansible.builtin.set_fact:
+        mongo_user: "{{ mongo_user_raw.stdout | trim }}"
+        mongo_pass: "{{ mongo_pass_raw.stdout | trim }}"
+      when: env_file.stat.exists
+
+    - name: Dump each MongoDB container (with auth)
+      ansible.builtin.shell: |
+        docker exec {{ item }} mongodump \
+          --archive --gzip \
+          --username "{{ mongo_user }}" \
+          --password "{{ mongo_pass }}" \
+          --authenticationDatabase admin \
+          > "{{ deploy_dir }}/backups/{{ item }}_{{ ansible_facts['date_time']['iso8601_basic_short'] }}.archive"
       loop: "{{ mongodb_containers.stdout_lines }}"
       when:
         - env_file.stat.exists
         - mongodb_containers.stdout_lines | length > 0
+        - mongo_user != ''
+        - mongo_pass != ''
       register: dump_results
       changed_when: true
 
@@ -124,6 +151,7 @@
         - backup_storage_access_key | default('') != ''
         - backup_storage_secret_key | default('') != ''
         - mongodb_containers.stdout_lines | length > 0
+        - dump_results is defined
       register: upload_result
       failed_when: "'upload: failed' in upload_result.stderr or upload_result.rc != 0"
       changed_when: true

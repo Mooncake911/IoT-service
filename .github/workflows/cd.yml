@@ -108,7 +108,7 @@ jobs:
 
       - name: Setup Terraform
         if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.15.5"
 

@@ -105,7 +105,25 @@
       when: user_updated.changed
 
     # ========================================================================
-    # 7. POST-INSTALLATION CHECKS
+    # 7. CONFIGURE DOCKER REGISTRY MIRRORS (for stable access)
+    # ========================================================================
+    - name: Configure Docker registry mirrors
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "registry-mirrors": [
+              "https://cr.yandex/mirror",
+              "https://mirror.gcr.io"
+            ]
+          }
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart docker
+
+    # ========================================================================
+    # 8. POST-INSTALLATION CHECKS
     # ========================================================================
     - name: Check if Docker can run without sudo
       ansible.builtin.shell:
@@ -119,3 +137,10 @@
       ansible.builtin.debug:
         msg: "⚠️ User {{ docker_user }} may need to log out and back in to use Docker without sudo"
       when: docker_ps_test.rc != 0
+
+  handlers:
+    - name: restart docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+        daemon_reload: yes

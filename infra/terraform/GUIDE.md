@@ -20,5 +20,7 @@ D:\Projects\IDEA_Projects\IoT-service\terraform_1.15.5_windows_amd64\terraform.e
 
 D:\Projects\IDEA_Projects\IoT-service\terraform_1.15.5_windows_amd64\terraform.exe destroy
 
+D:\Projects\IDEA_Projects\IoT-service\terraform_1.15.5_windows_amd64\terraform.exe refresh
+
 yc kms symmetric-key list  
 D:\Projects\IDEA_Projects\IoT-service\terraform_1.15.5_windows_amd64\terraform.exe state rm yandex_kms_symmetric_key.backup_key                                

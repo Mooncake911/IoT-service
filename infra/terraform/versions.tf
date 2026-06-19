@@ -4,6 +4,7 @@ terraform {
   required_providers {
     yandex = {
       source = "yandex-cloud/yandex"
+      version = "0.209.0"
     }
     random = {
       source  = "hashicorp/random"

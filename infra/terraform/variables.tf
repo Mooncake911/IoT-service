@@ -57,13 +57,13 @@ variable "platform_id" {
 variable "cores" {
   type        = number
   description = "CPU cores"
-  default     = 2
+  default     = 4
 }
 
 variable "memory" {
   type        = number
   description = "RAM in GB"
-  default     = 2
+  default     = 8
 }
 
 variable "core_fraction" {

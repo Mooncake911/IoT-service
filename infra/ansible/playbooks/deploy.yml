@@ -141,11 +141,9 @@
       ansible.builtin.shell: |
         docker run --rm \
           -v "{{ deploy_dir }}/backups:/backups" \
-          -e AWS_ACCESS_KEY_ID="{{ backup_storage_access_key }}" \
-          -e AWS_SECRET_ACCESS_KEY="{{ backup_storage_secret_key }}" \
-          amazon/aws-cli:2.15.15 \
-          --endpoint-url=https://storage.yandexcloud.net \
-          s3 cp /backups/ s3://{{ backup_bucket_name }}/backups/ --recursive --quiet
+          -e MC_HOST_s3="https://{{ backup_storage_access_key }}:{{ backup_storage_secret_key }}@storage.yandexcloud.net" \
+          minio/mc:latest \
+          cp --recursive /backups/ s3/{{ backup_bucket_name }}/backups/
       when:
         - env_file.stat.exists
         - backup_bucket_name | default('') != ''
@@ -154,7 +152,7 @@
         - mongodb_containers.stdout_lines | length > 0
         - dump_results is defined
       register: upload_result
-      failed_when: "'upload: failed' in upload_result.stderr or upload_result.rc != 0"
+      failed_when: upload_result.rc != 0
       changed_when: true
 
     # ========================================================================

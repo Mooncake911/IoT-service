@@ -116,6 +116,18 @@ resource "yandex_storage_bucket" "backup_bucket" {
     yandex_kms_symmetric_key.backup_key
   ]
 
+  # Grant the storage SA full S3-level access to the bucket.
+  # Yandex Object Storage uses S3 ACLs for static-key requests — folder-level
+  # IAM roles (storage.admin) are NOT propagated to S3 ACL checks, so without
+  # this grant the MinIO mc client will get "Insufficient permissions".
+  acl = "private"
+
+  grant {
+    id          = yandex_iam_service_account.storage_sa.id
+    type        = "CanonicalUser"
+    permissions = ["FULL_CONTROL"]
+  }
+
   versioning {
     enabled = true
   }

@@ -152,8 +152,23 @@
         - mongodb_containers.stdout_lines | length > 0
         - dump_results is defined
       register: upload_result
-      failed_when: upload_result.rc != 0
-      changed_when: true
+      # Non-fatal: a backup upload failure must not block the deployment.
+      # Backups are a safety net — if S3 is unavailable the deploy still proceeds.
+      failed_when: false
+      changed_when: upload_result.rc == 0
+
+    - name: Warn if backup upload failed
+      ansible.builtin.debug:
+        msg: >-
+          ⚠️  MongoDB backup upload to S3 failed (rc={{ upload_result.rc }}).
+          Deployment will continue. Check S3 permissions (bucket ACL grant +
+          kms.keys.encrypterDecrypter role for the storage SA) and re-run
+          terraform apply if the bucket was recently provisioned.
+          stderr: {{ upload_result.stderr | default('') | truncate(300) }}
+      when:
+        - upload_result is defined
+        - upload_result.rc is defined
+        - upload_result.rc != 0
 
     # ========================================================================
     # 5. CONFIGURE BACKUP CRON JOB

@@ -20,11 +20,6 @@ on:
         required: true
         default: false
         type: boolean
-      run_ansible_setup:
-        description: "Run Ansible Docker installation?"
-        required: true
-        default: false
-        type: boolean
       enable_observability:
         description: "Deploy observability stack (ELK + Prometheus + Grafana)?"
         required: true
@@ -91,7 +86,6 @@ jobs:
             echo "ACTION=deploy" >> $GITHUB_ENV
             echo "TAG=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
             echo "RUN_TERRAFORM=false" >> $GITHUB_ENV
-            echo "RUN_ANSIBLE_SETUP=false" >> $GITHUB_ENV
             echo "ENABLE_OBSERVABILITY=false" >> $GITHUB_ENV
           else
             echo "ACTION=${{ github.event.inputs.action }}" >> $GITHUB_ENV
@@ -102,7 +96,6 @@ jobs:
             fi
             echo "TAG=$TAG_INPUT" >> $GITHUB_ENV
             echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}" >> $GITHUB_ENV
-            echo "RUN_ANSIBLE_SETUP=${{ github.event.inputs.run_ansible_setup }}" >> $GITHUB_ENV
             echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}" >> $GITHUB_ENV
           fi
 

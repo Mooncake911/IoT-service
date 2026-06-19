@@ -180,12 +180,16 @@ services:
       dockerfile: Dockerfile
       target: dashboard-ui
       args:
-        VITE_GATEWAY_URL: http://iot-data-gateway:${SPRING_INTERNAL_PORT}
+        VITE_GATEWAY_URL: ""
+        SPRING_INTERNAL_PORT: ${SPRING_INTERNAL_PORT}
     image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-dashboard-ui:${TAG}
     container_name: iot-dashboard-ui
     stop_grace_period: 30s
+    environment:
+      SPRING_INTERNAL_PORT: ${SPRING_INTERNAL_PORT}
+      GATEWAY_HOST: iot-data-gateway
     ports:
-      - "${DASHBOARD_UI_PORT}:8080"
+      - "${DASHBOARD_UI_PORT}:${SPRING_INTERNAL_PORT}"
     depends_on:
       iot-data-gateway:
         condition: service_healthy

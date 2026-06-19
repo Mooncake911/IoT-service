@@ -6,7 +6,6 @@ on:
     paths-ignore:
       - "**/*.md"
       - ".idea/**"
-      - "infra/**"
       - "monitoring/**"
       - "elk/**"
       - "scripts/**"
@@ -15,7 +14,6 @@ on:
     paths-ignore:
       - "**/*.md"
       - ".idea/**"
-      - "infra/**"
       - "monitoring/**"
       - "elk/**"
       - "scripts/**"
@@ -75,6 +73,7 @@ jobs:
           server=false
           client=false
           should_deploy=false
+          infra_only=false
           server_all=false
           dashboard_image=false
           iot_controller=false
@@ -83,12 +82,24 @@ jobs:
           iot_data_gateway=false
           iot_data_simulator=false
 
+          app_changed=false
+          if [ "$all" = true ] || changed '^(\.mvn/|mvnw|mvnw\.cmd|pom\.xml$|Dockerfile$|\.dockerignore$|iot-contracts/|iot-controller/|iot-analytics/|iot-alerts/|iot-data-gateway/|iot-data-simulator/|iot-dashboard/)'; then
+            app_changed=true
+          fi
+
           if [ "$all" = true ] || changed '^\.github/workflows/ci\.yml$'; then
             ci=true
           fi
 
-          if [ "$all" = true ] || changed '^(\.mvn/|mvnw|mvnw\.cmd|pom\.xml$|Dockerfile$|\.dockerignore$|iot-contracts/|iot-controller/|iot-analytics/|iot-alerts/|iot-data-gateway/|iot-data-simulator/|iot-dashboard/)'; then
+          if [ "$app_changed" = true ]; then
             should_deploy=true
+          fi
+
+          if [ "$all" = true ] || changed '^infra/'; then
+            should_deploy=true
+            if [ "$all" != true ] && [ "$app_changed" != true ]; then
+              infra_only=true
+            fi
           fi
 
           if [ "$ci" = true ] || changed '^(\.mvn/|mvnw|mvnw\.cmd|pom\.xml$|iot-contracts/)'; then
@@ -126,7 +137,7 @@ jobs:
             dashboard_image=true
           fi
 
-          export server client server_all dashboard_image
+          export server client server_all dashboard_image infra_only
           export iot_controller iot_analytics iot_alerts iot_data_gateway iot_data_simulator
 
           python3 - <<'PY'
@@ -149,39 +160,45 @@ jobs:
               "iot-data-simulator": "iot_data_simulator",
           }
 
-          include = []
-          if os.environ["server_all"] == "true":
-              selected = [name for name, *_ in server_services]
-          else:
-              selected = [
-                  name for name, *_ in server_services
-                  if os.environ[service_flags[name]] == "true"
-              ]
+          all_services = [name for name, *_ in server_services] + ["iot-dashboard-ui"]
+          infra_only = os.environ.get("infra_only") == "true"
 
-          for name, context, dockerfile, target in server_services:
-              if name in selected:
+          if infra_only:
+              include = []
+              retag_include = [{"service": name} for name in all_services]
+          else:
+              include = []
+              if os.environ["server_all"] == "true":
+                  selected = [name for name, *_ in server_services]
+              else:
+                  selected = [
+                      name for name, *_ in server_services
+                      if os.environ[service_flags[name]] == "true"
+                  ]
+
+              for name, context, dockerfile, target in server_services:
+                  if name in selected:
+                      include.append({
+                          "service": name,
+                          "context": context,
+                          "dockerfile": dockerfile,
+                          "target": target,
+                      })
+
+              if os.environ["dashboard_image"] == "true":
                   include.append({
-                      "service": name,
-                      "context": context,
-                      "dockerfile": dockerfile,
-                      "target": target,
+                      "service": "iot-dashboard-ui",
+                      "context": "./iot-dashboard",
+                      "dockerfile": "./iot-dashboard/Dockerfile",
+                      "target": "dashboard-ui",
                   })
 
-          if os.environ["dashboard_image"] == "true":
-              include.append({
-                  "service": "iot-dashboard-ui",
-                  "context": "./iot-dashboard",
-                  "dockerfile": "./iot-dashboard/Dockerfile",
-                  "target": "dashboard-ui",
-              })
-
-          all_services = [name for name, *_ in server_services] + ["iot-dashboard-ui"]
-          selected_services = {item["service"] for item in include}
-          retag_include = [
-              {"service": name}
-              for name in all_services
-              if selected_services and name not in selected_services
-          ]
+              selected_services = {item["service"] for item in include}
+              retag_include = [
+                  {"service": name}
+                  for name in all_services
+                  if selected_services and name not in selected_services
+              ]
 
           with open("image-matrix.json", "w", encoding="utf-8") as fh:
               json.dump({"include": include}, fh, separators=(",", ":"))
@@ -210,6 +227,7 @@ jobs:
 
           echo "Changed files:"
           sed 's/^/  /' changed-files.txt || true
+          echo "infra_only=$infra_only"
           echo "Image matrix: $image_matrix"
           echo "Retag matrix: $retag_matrix"
           echo "should_deploy=$should_deploy" > deploy.env
@@ -334,7 +352,7 @@ jobs:
       - test-server
       - build-client
       - test-client
-    if: ${{ always() && needs.changes.outputs.has_images == 'true' && needs.build-server.result == 'success' && needs.test-server.result == 'success' && needs.build-client.result == 'success' && needs.test-client.result == 'success' }}
+    if: ${{ always() && needs.changes.outputs.has_images == 'true' && (needs.build-server.result == 'success' || needs.build-server.result == 'skipped') && (needs.test-server.result == 'success' || needs.test-server.result == 'skipped') && (needs.build-client.result == 'success' || needs.build-client.result == 'skipped') && (needs.test-client.result == 'success' || needs.test-client.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -385,7 +403,7 @@ jobs:
     needs:
       - changes
       - build-and-push
-    if: ${{ always() && needs.changes.outputs.has_retags == 'true' && needs.build-and-push.result == 'success' }}
+    if: ${{ always() && needs.changes.outputs.has_retags == 'true' && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

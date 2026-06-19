@@ -185,7 +185,7 @@ services:
     container_name: iot-dashboard-ui
     stop_grace_period: 30s
     ports:
-      - "${DASHBOARD_UI_PORT}:80"    # теперь 80 внутри контейнера
+      - "${DASHBOARD_UI_PORT}:8080"
     depends_on:
       iot-data-gateway:
         condition: service_healthy

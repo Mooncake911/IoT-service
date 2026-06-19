@@ -19,6 +19,7 @@
     # 1. AUTHENTICATION
     # ========================================================================
     - name: Log in to GHCR
+      become: true
       community.docker.docker_login:
         registry_url: ghcr.io
         username: "{{ registry_username }}"

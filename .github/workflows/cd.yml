@@ -224,7 +224,6 @@ jobs:
           EOF
 
       - name: Run Ansible Docker installation
-        if: ${{ env.RUN_ANSIBLE_SETUP == 'true' }}
         working-directory: infra/ansible
         run: |
           ansible-playbook playbooks/install-docker.yml -i inventory.ini

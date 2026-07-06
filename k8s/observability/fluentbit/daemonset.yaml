@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentbit
+  namespace: iot
+  labels:
+    app: fluentbit
+spec:
+  selector:
+    matchLabels:
+      app: fluentbit
+  template:
+    metadata:
+      labels:
+        app: fluentbit
+    spec:
+      serviceAccountName: fluentbit
+      containers:
+        - name: fluentbit
+          image: cr.fluentbit.io/fluent/fluent-bit:2.2
+          ports:
+            - containerPort: 2020
+              name: http
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/
+            - name: varlog
+              mountPath: /var/log
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: fluentbit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock

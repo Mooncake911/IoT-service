@@ -1,0 +1,71 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-test
+  namespace: iot
+spec:
+  template:
+    spec:
+      containers:
+        - name: k6
+          image: grafana/k6:0.57.0
+          command:
+            - k6
+            - run
+            - --vus
+            - "50"
+            - --duration
+            - "5m"
+            - --out
+            - json=/tmp/results.json
+            - /scripts/test.js
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          env:
+            - name: GATEWAY_URL
+              value: http://iot-data-gateway:8080
+      volumes:
+        - name: scripts
+          configMap:
+            name: k6-script
+      restartPolicy: Never
+  backoffLimit: 2
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-script
+  namespace: iot
+data:
+  test.js: |
+    import http from 'k6/http';
+    import { sleep, check } from 'k6';
+
+    const BASE_URL = __ENV.GATEWAY_URL || 'http://iot-data-gateway:8080';
+
+    export const options = {
+      thresholds: {
+        http_req_duration: ['p(95)<5000'],
+      },
+    };
+
+    export default function () {
+      const payload = JSON.stringify({
+        deviceId: `load-test-${__VU}-${Date.now()}`,
+        type: 'TEMPERATURE',
+        status: 'ONLINE',
+        location: { lat: 55.75, lng: 37.62 },
+        data: { value: Math.random() * 100 },
+      });
+
+      const res = http.post(`${BASE_URL}/api/v1/controller`, payload, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      check(res, {
+        'status is 200 or 202': (r) => r.status === 200 || r.status === 202,
+      });
+
+      sleep(0.5);
+    }

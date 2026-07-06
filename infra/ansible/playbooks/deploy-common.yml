@@ -1,0 +1,113 @@
+# ========================================================================
+# 1. AUTHENTICATION
+# ========================================================================
+- name: Log in to GHCR
+  become: true
+  community.docker.docker_login:
+    registry_url: ghcr.io
+    username: "{{ registry_username }}"
+    password: "{{ registry_password }}"
+  when: registry_password != ""
+  no_log: true
+
+# ========================================================================
+# 2. DEPLOYMENT DIRECTORY
+# ========================================================================
+- name: Create deployment directory
+  ansible.builtin.file:
+    path: "{{ deploy_dir }}"
+    state: directory
+    mode: "0755"
+
+# ========================================================================
+# 3. VERSION MANAGEMENT (Deploy & Rollback)
+# ========================================================================
+- name: Check if .env exists
+  ansible.builtin.stat:
+    path: "{{ deploy_dir }}/.env"
+  register: env_file
+
+- name: Read current tag from .env
+  ansible.builtin.shell: |
+    grep -E '^TAG=' "{{ deploy_dir }}/.env" | cut -d'=' -f2
+  register: current_tag_output
+  when: env_file.stat.exists
+  failed_when: false
+  changed_when: false
+
+- name: Save current version to .previous_version
+  ansible.builtin.copy:
+    content: "{{ current_tag_output.stdout | trim }}"
+    dest: "{{ deploy_dir }}/.previous_version"
+    mode: "0644"
+  when: env_file.stat.exists and current_tag_output.stdout | trim != ""
+
+- name: Check if .previous_version exists
+  ansible.builtin.stat:
+    path: "{{ deploy_dir }}/.previous_version"
+  register: prev_ver_file
+
+- name: Fail if rollback requested but no previous version
+  ansible.builtin.fail:
+    msg: "No previous version found on the server. Please specify a tag to deploy."
+  when: deploy_action == 'rollback' and not (prev_ver_file.stat.exists | default(false)) and (app_version == 'latest' or app_version == '')
+
+- name: Read previous version
+  ansible.builtin.slurp:
+    src: "{{ deploy_dir }}/.previous_version"
+  register: slurped_prev_version
+  when: deploy_action == 'rollback' and (prev_ver_file.stat.exists | default(false)) and (app_version == 'latest' or app_version == '')
+
+- name: Set rollback version fact
+  ansible.builtin.set_fact:
+    rollback_version: "{{ slurped_prev_version['content'] | b64decode | trim }}"
+  when: deploy_action == 'rollback' and (prev_ver_file.stat.exists | default(false)) and (app_version == 'latest' or app_version == '')
+
+- name: Set target version to deploy
+  ansible.builtin.set_fact:
+    target_version: "{{ rollback_version if (deploy_action == 'rollback' and rollback_version is defined) else app_version }}"
+
+# ========================================================================
+# 4. COPY CONFIGURATION FILES
+# ========================================================================
+- name: Copy monitoring configuration directory
+  ansible.builtin.copy:
+    src: "../../../monitoring"
+    dest: "{{ deploy_dir }}/"
+    mode: "0755"
+
+- name: Copy ELK configuration directory
+  ansible.builtin.copy:
+    src: "../../../elk"
+    dest: "{{ deploy_dir }}/"
+    mode: "0755"
+
+- name: Copy docker-compose.yml
+  ansible.builtin.copy:
+    src: "../../../docker-compose.yml"
+    dest: "{{ deploy_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Copy base .env file
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../../.env"
+    dest: "{{ deploy_dir }}/.env"
+    mode: "0600"
+
+- name: Configure Registry in .env
+  ansible.builtin.lineinfile:
+    path: "{{ deploy_dir }}/.env"
+    regexp: "^REGISTRY="
+    line: "REGISTRY=ghcr.io"
+
+- name: Configure Image Namespace in .env
+  ansible.builtin.lineinfile:
+    path: "{{ deploy_dir }}/.env"
+    regexp: "^IMAGE_NAMESPACE="
+    line: "IMAGE_NAMESPACE={{ github_owner | lower }}/iot-service"
+
+- name: Configure Tag in .env
+  ansible.builtin.lineinfile:
+    path: "{{ deploy_dir }}/.env"
+    regexp: "^TAG="
+    line: "TAG={{ target_version }}"

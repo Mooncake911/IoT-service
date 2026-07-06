@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: iot
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    xpack.monitoring.enabled: false
+    pipeline.workers: 2
+    pipeline.batch.size: 125
+    pipeline.batch.delay: 50
+  logstash.conf: |
+    input {
+      tcp {
+        port => 5044
+        codec => json
+      }
+    }
+
+    filter {
+      if ![service] {
+        mutate {
+          add_field => { "service" => "unknown-service" }
+        }
+      }
+
+      if [level] {
+        mutate {
+          uppercase => ["level"]
+        }
+      }
+
+      if [@timestamp] {
+        date {
+          match => [ "@timestamp", "ISO8601" ]
+          target => "@timestamp"
+        }
+      } else if [timestamp] {
+        date {
+          match => [ "timestamp", "ISO8601" ]
+          target => "@timestamp"
+        }
+      }
+
+      mutate {
+        remove_field => ["host", "port", "@version"]
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts => ["elasticsearch:9200"]
+        index => "logs-%{[service]}-%{+YYYY.MM.dd}"
+      }
+    }

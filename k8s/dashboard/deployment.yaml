@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-dashboard-ui
+  namespace: iot
+  labels:
+    app: iot-dashboard-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iot-dashboard-ui
+  template:
+    metadata:
+      labels:
+        app: iot-dashboard-ui
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      containers:
+        - name: dashboard
+          image: ghcr.io/mooncake911/iot-service/iot-dashboard-ui:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: iot-config
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

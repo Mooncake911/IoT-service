@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-dashboard-ui
+  namespace: iot
+  labels:
+    app: iot-dashboard-ui
+spec:
+  selector:
+    app: iot-dashboard-ui
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+      nodePort: 31080
+  type: NodePort

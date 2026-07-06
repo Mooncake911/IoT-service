@@ -388,13 +388,13 @@ Prometheus собирает метрики по HTTP, Grafana визуализи
 Запуск:
 
 ```bash
-docker compose up -d --build
+docker compose --profile core up -d --build
 ```
 
 Проверка, что стек поднялся:
 
 ```bash
-docker compose ps
+docker compose --profile core ps
 ```
 
 Smoke-check всего потока:

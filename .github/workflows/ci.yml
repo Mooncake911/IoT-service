@@ -9,6 +9,7 @@ on:
       - "monitoring/**"
       - "elk/**"
       - "scripts/**"
+      - "k8s/**"
   pull_request:
     branches: [ "master", "main" ]
     paths-ignore:
@@ -17,6 +18,7 @@ on:
       - "monitoring/**"
       - "elk/**"
       - "scripts/**"
+      - "k8s/**"
   workflow_dispatch:
 
 permissions:
@@ -34,7 +36,6 @@ jobs:
       image_matrix: ${{ steps.filter.outputs.image_matrix }}
       has_retags: ${{ steps.filter.outputs.has_retags }}
       retag_matrix: ${{ steps.filter.outputs.retag_matrix }}
-      should_deploy: ${{ steps.filter.outputs.should_deploy }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -72,7 +73,6 @@ jobs:
           ci=false
           server=false
           client=false
-          should_deploy=false
           infra_only=false
           server_all=false
           dashboard_image=false
@@ -91,12 +91,7 @@ jobs:
             ci=true
           fi
 
-          if [ "$app_changed" = true ]; then
-            should_deploy=true
-          fi
-
           if [ "$all" = true ] || changed '^infra/'; then
-            should_deploy=true
             if [ "$all" != true ] && [ "$app_changed" != true ]; then
               infra_only=true
             fi
@@ -210,8 +205,7 @@ jobs:
           retag_matrix="$(cat retag-matrix.json)"
 
           echo "server=$server" >> "$GITHUB_OUTPUT"
-          echo "client=$client" >> "$GITHUB_OUTPUT"
-          echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
+           echo "client=$client" >> "$GITHUB_OUTPUT"
           if [ "$image_matrix" = '{"include":[]}' ]; then
             echo "has_images=false" >> "$GITHUB_OUTPUT"
           else
@@ -230,15 +224,6 @@ jobs:
           echo "infra_only=$infra_only"
           echo "Image matrix: $image_matrix"
           echo "Retag matrix: $retag_matrix"
-          echo "should_deploy=$should_deploy" > deploy.env
-
-      - name: Upload deploy metadata
-        uses: actions/upload-artifact@v6
-        with:
-          name: ci-deploy-metadata
-          path: deploy.env
-          retention-days: 1
-
   # ========================================================================
   #  BUILD JOBS (without tests)
   # ========================================================================

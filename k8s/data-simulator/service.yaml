@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-data-simulator
+  namespace: iot
+  labels:
+    app: iot-data-simulator
+spec:
+  selector:
+    app: iot-data-simulator
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  type: ClusterIP

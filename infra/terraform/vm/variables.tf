@@ -13,16 +13,16 @@ variable "yc_folder_id" {
   description = "Yandex Cloud folder ID"
 }
 
-variable "zone" {
-  type        = string
-  description = "Default compute zone"
-  default     = "ru-central1-a"
-}
-
 variable "vm_name" {
   type        = string
   description = "Virtual machine name"
   default     = "iot-vm"
+}
+
+variable "vm_internal_ip" {
+  type        = string
+  description = "Static internal IP for the DB VM (from the subnet CIDR)"
+  default     = "10.10.0.100"
 }
 
 variable "ssh_user" {
@@ -70,18 +70,6 @@ variable "core_fraction" {
   type        = number
   description = "CPU core fraction"
   default     = 100
-}
-
-variable "network_name" {
-  type        = string
-  description = "VPC network name"
-  default     = "iot-network"
-}
-
-variable "subnet_cidr" {
-  type        = string
-  description = "Subnet CIDR"
-  default     = "10.10.0.0/24"
 }
 
 variable "open_tcp_ports" {

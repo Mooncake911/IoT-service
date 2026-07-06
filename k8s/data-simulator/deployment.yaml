@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-data-simulator
+  namespace: iot
+  labels:
+    app: iot-data-simulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iot-data-simulator
+  template:
+    metadata:
+      labels:
+        app: iot-data-simulator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: simulator
+          image: ghcr.io/mooncake911/iot-service/iot-data-simulator:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: iot-config
+          env:
+            - name: CONTROLLER_URL
+              value: http://iot-controller:8080/api/ingest
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 70
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iot-data-gateway
+  namespace: iot
+  labels:
+    app: iot-data-gateway
+spec:
+  selector:
+    app: iot-data-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+      nodePort: 30085
+  type: NodePort

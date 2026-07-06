@@ -31,6 +31,7 @@ x-rabbitmq-env: &rabbitmq-env
 services:
   iot-data-gateway:
     <<: *base-service
+    profiles: [ "core" ]
     build:
       context: .
       dockerfile: Dockerfile
@@ -65,6 +66,7 @@ services:
 
   iot-analytics:
     <<: *base-service
+    profiles: [ "core" ]
     build:
       context: .
       dockerfile: Dockerfile
@@ -93,6 +95,7 @@ services:
 
   iot-controller:
     <<: *base-service
+    profiles: [ "core" ]
     build:
       context: .
       dockerfile: Dockerfile
@@ -121,6 +124,7 @@ services:
 
   iot-alerts:
     <<: *base-service
+    profiles: [ "core" ]
     build:
       context: .
       dockerfile: Dockerfile
@@ -149,6 +153,7 @@ services:
 
   iot-data-simulator:
     <<: *base-service
+    profiles: [ "core" ]
     build:
       context: .
       dockerfile: Dockerfile
@@ -175,6 +180,7 @@ services:
 
   iot-dashboard-ui:
     <<: *base-service
+    profiles: [ "core" ]
     build:
       context: ./iot-dashboard
       dockerfile: Dockerfile
@@ -198,6 +204,7 @@ services:
 
   mongodb-controller:
     <<: *base-service
+    profiles: [ "core", "db" ]
     image: mongo:${MONGO_VERSION}
     container_name: mongodb-controller
     stop_grace_period: 30s
@@ -218,6 +225,7 @@ services:
 
   mongodb-analytics:
     <<: *base-service
+    profiles: [ "core", "db" ]
     image: mongo:${MONGO_VERSION}
     container_name: mongodb-analytics
     stop_grace_period: 30s
@@ -238,6 +246,7 @@ services:
 
   mongodb-alerts:
     <<: *base-service
+    profiles: [ "core", "db" ]
     image: mongo:${MONGO_VERSION}
     container_name: mongodb-alerts
     stop_grace_period: 30s
@@ -258,6 +267,7 @@ services:
 
   rabbitmq:
     <<: *base-service
+    profiles: [ "core", "db" ]
     image: rabbitmq:${RABBIT_VERSION}
     container_name: rabbitmq
     stop_grace_period: 30s
@@ -386,6 +396,29 @@ services:
       kibana:
         condition: service_healthy
     restart: on-failure
+
+  # --- FILEBEAT (Docker logs → Logstash, используется в K8s mode) ---
+
+  filebeat:
+    profiles: [ "filebeat" ]
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
+    container_name: filebeat
+    user: root
+    volumes:
+      - ./elk/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      LOGSTASH_HOST: ${LOGSTASH_HOST}
+    command: [ "--strict.perms=false" ]
+    restart: unless-stopped
+    networks:
+      - iot-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --- MONITORING ---
 

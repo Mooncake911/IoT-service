@@ -1,0 +1,163 @@
+- name: Deploy databases to VM — Lab 3
+  hosts: iot_vm
+  become: false
+
+  vars:
+    deploy_dir: /home/ubuntu/iot-service
+    github_owner: ""
+    registry_username: ""
+    registry_password: ""
+    app_version: "latest"
+    deploy_action: "deploy"
+    enable_observability: false
+    vm_internal_ip: "10.10.0.100"
+
+  tasks:
+    - include_tasks: deploy-common.yml
+
+    # ========================================================================
+    # 5. DEPLOY DATABASES (always — MongoDB + RabbitMQ on VM for K8s mode)
+    # ========================================================================
+    - name: Pull database images
+      ansible.builtin.shell: |
+        docker compose --profile db pull
+      args:
+        chdir: "{{ deploy_dir }}"
+      async: 600
+      poll: 20
+      changed_when: true
+
+    - name: Start databases
+      ansible.builtin.shell: |
+        docker compose --profile db up -d --remove-orphans
+      args:
+        chdir: "{{ deploy_dir }}"
+      changed_when: true
+
+    - name: Wait for MongoDB controller health
+      ansible.builtin.shell: |
+        docker exec mongodb-controller mongosh --quiet --eval "db.adminCommand('ping')" 2>/dev/null
+      register: mongo_health
+      until: mongo_health.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Wait for RabbitMQ health
+      ansible.builtin.shell: |
+        docker exec rabbitmq rabbitmq-diagnostics -q check_running 2>/dev/null
+      register: rabbit_health
+      until: rabbit_health.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Show running database containers
+      ansible.builtin.shell: |
+        docker ps --filter "name=mongodb\|rabbitmq" --format "table {{ '{{.Names}}' }}\t{{ '{{.Status}}' }}"
+      register: db_containers
+      changed_when: false
+
+    - name: Display database containers
+      ansible.builtin.debug:
+        var: db_containers.stdout_lines
+
+- name: Deploy application to Kubernetes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    k8s_manifest_dir: "{{ playbook_dir }}/../../../k8s"
+    vm_internal_ip: "10.10.0.100"
+    enable_observability: false
+
+  tasks:
+    - name: Ensure kubectl is installed
+      ansible.builtin.command: kubectl version --client -o json
+      register: kubectl_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if kubectl is not installed
+      ansible.builtin.fail:
+        msg: "kubectl is not installed. Install it before deploying to K8s."
+      when: kubectl_check.rc != 0
+
+    - name: Update ConfigMap with DB VM internal IP
+      ansible.builtin.replace:
+        path: "{{ k8s_manifest_dir }}/configmap.yaml"
+        regexp: 'mongodb://admin:admin@[0-9.]+:27017'
+        replace: 'mongodb://admin:admin@{{ vm_internal_ip }}:27017'
+
+    - name: Update RabbitMQ host in ConfigMap
+      ansible.builtin.replace:
+        path: "{{ k8s_manifest_dir }}/configmap.yaml"
+        regexp: 'RABBIT_HOST: [0-9.]+'
+        replace: 'RABBIT_HOST: {{ vm_internal_ip }}'
+
+    - name: Apply core K8s manifests
+      ansible.builtin.shell: |
+        kubectl apply -f "{{ k8s_manifest_dir }}/"
+      register: kubectl_apply
+      changed_when: '"configured" in kubectl_apply.stdout or "created" in kubectl_apply.stdout'
+
+    - name: Apply observability manifests (Prometheus + Grafana + ELK + Fluentbit)
+      ansible.builtin.shell: |
+        kubectl apply -f "{{ k8s_manifest_dir }}/observability/"
+      register: observability_apply
+      changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
+      when: enable_observability
+
+    - name: Wait for Logstash pod to be ready (observability mode)
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=Ready pod -l app=logstash -n iot --timeout=180s
+      when: enable_observability
+      changed_when: false
+
+    - name: Get K8s node internal IP for Filebeat
+      ansible.builtin.shell: |
+        kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
+      register: k8s_node_ip
+      when: enable_observability
+      changed_when: false
+
+    - name: Start Filebeat on VM with Logstash host
+      ansible.builtin.shell: |
+        sed -i 's/^LOGSTASH_HOST=.*/LOGSTASH_HOST={{ k8s_node_ip.stdout }}:30444/' {{ deploy_dir }}/.env
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['iot_vm'] }}"
+      when:
+        - enable_observability
+        - k8s_node_ip.stdout | length > 0
+
+    - name: Start filebeat on VM
+      ansible.builtin.shell: |
+        docker compose --profile filebeat up -d --remove-orphans
+      args:
+        chdir: "{{ deploy_dir }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['iot_vm'] }}"
+      when:
+        - enable_observability
+        - k8s_node_ip.stdout | length > 0
+
+    - name: Show kubectl apply output
+      ansible.builtin.debug:
+        var: kubectl_apply.stdout_lines
+
+    - name: Wait for all pods to be ready
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=Ready pods --all -n iot --timeout=180s
+      register: wait_pods
+      changed_when: false
+
+    - name: Show pod status
+      ansible.builtin.shell: |
+        kubectl get pods -n iot -o wide
+      register: pod_status
+      changed_when: false
+
+    - name: Display pod status
+      ansible.builtin.debug:
+        var: pod_status.stdout_lines

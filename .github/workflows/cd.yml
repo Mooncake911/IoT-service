@@ -25,56 +25,23 @@ on:
         required: true
         default: false
         type: boolean
-  workflow_run:
-    workflows: [ "CI" ]
-    types:
-      - completed
-    branches:
-      - master
-      - main
+      deploy_target:
+        description: "Deploy target (vm for Docker Compose, k8s for Managed K8s)"
+        required: true
+        default: "vm"
+        type: choice
+        options:
+          - vm
+          - k8s
 
 permissions:
   contents: read
   packages: write
-  actions: read
 
 jobs:
-  deploy-gate:
-    name: Deploy Gate
-    runs-on: ubuntu-latest
-    outputs:
-      should_deploy: ${{ steps.result.outputs.should_deploy }}
-    steps:
-      - name: Download CI deploy metadata
-        if: ${{ github.event_name == 'workflow_run' }}
-        uses: actions/download-artifact@v7
-        with:
-          name: ci-deploy-metadata
-          path: ci-deploy-metadata
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Decide whether to deploy
-        id: result
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ -f ci-deploy-metadata/deploy.env ]; then
-            source ci-deploy-metadata/deploy.env
-            echo "should_deploy=${should_deploy:-false}" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
-          fi
-
   deploy:
     name: Deploy to Yandex Cloud
-    needs: deploy-gate
     runs-on: ubuntu-latest
-    if: ${{ needs.deploy-gate.outputs.should_deploy == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')) }}
 
     steps:
       - name: Checkout repository
@@ -82,22 +49,16 @@ jobs:
 
       - name: Parse inputs & set environment
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "ACTION=deploy" >> $GITHUB_ENV
-            echo "TAG=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_ENV
-            echo "RUN_TERRAFORM=false" >> $GITHUB_ENV
-            echo "ENABLE_OBSERVABILITY=false" >> $GITHUB_ENV
-          else
-            echo "ACTION=${{ github.event.inputs.action }}" >> $GITHUB_ENV
+          echo "ACTION=${{ github.event.inputs.action }}" >> $GITHUB_ENV
 
-            TAG_INPUT="${{ github.event.inputs.tag }}"
-            if [ -z "$TAG_INPUT" ]; then
-              TAG_INPUT="${{ github.sha }}"
-            fi
-            echo "TAG=$TAG_INPUT" >> $GITHUB_ENV
-            echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}" >> $GITHUB_ENV
-            echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}" >> $GITHUB_ENV
+          TAG_INPUT="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG_INPUT" ]; then
+            TAG_INPUT="${{ github.sha }}"
           fi
+          echo "DEPLOY_TARGET=${{ github.event.inputs.deploy_target }}" >> $GITHUB_ENV
+          echo "TAG=$TAG_INPUT" >> $GITHUB_ENV
+          echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}" >> $GITHUB_ENV
+          echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}" >> $GITHUB_ENV
 
       - name: Setup Terraform
         if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
@@ -120,12 +81,22 @@ jobs:
       - name: Run Terraform Apply
         id: terraform
         if: ${{ env.RUN_TERRAFORM == 'true' }}
-        working-directory: infra/terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
         run: |
-          terraform init \
+          # Apply network base
+          cd infra/terraform/base
+          terraform init -input=false \
+            -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
+            -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+          terraform apply -auto-approve \
+            -var="yc_cloud_id=${{ secrets.YC_CLOUD_ID }}" \
+            -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
+            -var="yc_service_account_key_file=/tmp/yc-sa-key.json"
+          # Apply VM
+          cd ../vm
+          terraform init -input=false \
             -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
             -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
           terraform apply -auto-approve \
@@ -133,6 +104,17 @@ jobs:
             -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
             -var="yc_service_account_key_file=/tmp/yc-sa-key.json" \
             -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+          # Apply K8s if deploy target is k8s
+          if [ "${{ env.DEPLOY_TARGET }}" = "k8s" ]; then
+            cd ../k8s
+            terraform init -input=false \
+              -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
+              -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+            terraform apply -auto-approve \
+              -var="yc_cloud_id=${{ secrets.YC_CLOUD_ID }}" \
+              -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
+              -var="yc_service_account_key_file=/tmp/yc-sa-key.json"
+          fi
 
       - name: Determine VM IP
         id: get-ip
@@ -142,16 +124,18 @@ jobs:
         run: |
           if [ -n "${{ vars.VM_IP }}" ]; then
             echo "VM_IP=${{ vars.VM_IP }}" >> $GITHUB_ENV
+            echo "VM_INTERNAL_IP=${{ vars.VM_INTERNAL_IP }}" >> $GITHUB_ENV
           else
-            cd infra/terraform
-            # If TF was not initialized in this run, initialize it to query output
+            cd infra/terraform/vm
             if [ ! -d ".terraform" ]; then
               terraform init -input=false \
                 -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
                 -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
             fi
-            IP=$(terraform output -raw public_ip)
+            IP=$(terraform output -raw vm_public_ip)
             echo "VM_IP=$IP" >> $GITHUB_ENV
+            INTERNAL=$(terraform output -raw vm_internal_ip 2>/dev/null || echo "10.10.0.100")
+            echo "VM_INTERNAL_IP=$INTERNAL" >> $GITHUB_ENV
           fi
 
       - name: Get Backup Storage Details from Terraform
@@ -160,16 +144,16 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
         run: |
-          cd infra/terraform
-          # If TF was not initialized in this run, initialize it to query output
-          if [ ! -d ".terraform" ]; then
+          if [ ! -d "infra/terraform/vm/.terraform" ]; then
+            cd infra/terraform/vm
             terraform init -input=false \
               -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
               -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+            cd ../../..
           fi
-          BACKUP_BUCKET=$(terraform output -raw backup_bucket_name 2>/dev/null || echo "")
-          BACKUP_ACCESS_KEY=$(terraform output -raw backup_storage_access_key 2>/dev/null || echo "")
-          BACKUP_SECRET_KEY=$(terraform output -raw backup_storage_secret_key 2>/dev/null || echo "")
+          BACKUP_BUCKET=$(cd infra/terraform/vm && terraform output -raw backup_bucket_name 2>/dev/null || echo "")
+          BACKUP_ACCESS_KEY=$(cd infra/terraform/vm && terraform output -raw backup_storage_access_key 2>/dev/null || echo "")
+          BACKUP_SECRET_KEY=$(cd infra/terraform/vm && terraform output -raw backup_storage_secret_key 2>/dev/null || echo "")
 
           if [ -n "$BACKUP_SECRET_KEY" ]; then
             echo "::add-mask::$BACKUP_SECRET_KEY"
@@ -253,13 +237,25 @@ jobs:
         run: |
           ansible-playbook playbooks/install-docker.yml -i inventory.ini
 
-      - name: Run Ansible Application Deployment
+      - name: Run Ansible Application Deployment (VM mode)
+        if: env.DEPLOY_TARGET == 'vm'
         working-directory: infra/ansible
         run: |
-          ansible-playbook playbooks/deploy.yml -i inventory.ini \
+          ansible-playbook playbooks/deploy-vm.yml -i inventory.ini \
             --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
 
-      - name: Post-deploy verification of running containers
+      - name: Run Ansible Database Deployment (K8s mode)
+        if: env.DEPLOY_TARGET == 'k8s'
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook playbooks/deploy-k8s.yml -i inventory.ini \
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }}"
+
+      # ============================================================
+      # VM POST-DEPLOY
+      # ============================================================
+      - name: Post-deploy verification of running containers (VM mode)
+        if: env.DEPLOY_TARGET == 'vm'
         run: |
           echo "Listing active docker containers on target VM..."
           ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --format 'table {{.Names}}\t{{.Status}}'"
@@ -279,3 +275,35 @@ jobs:
             echo "ERROR: Some containers did not start correctly! Total running containers ($RUNNING_COUNT) is less than expected ($EXPECTED)."
             exit 1
           fi
+
+      # ============================================================
+      # K8S POST-DEPLOY
+      # ============================================================
+      - name: Install kubectl (K8s mode)
+        if: env.DEPLOY_TARGET == 'k8s'
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Install Yandex Cloud CLI (K8s mode)
+        if: env.DEPLOY_TARGET == 'k8s'
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Get kubeconfig from Yandex Cloud (K8s mode)
+        if: env.DEPLOY_TARGET == 'k8s'
+        run: |
+          echo "${{ secrets.YC_SA_KEY_JSON }}" > /tmp/yc-sa-key.json
+          yc config set service-account-key /tmp/yc-sa-key.json
+          yc managed-kubernetes cluster get-credentials \
+            --name ${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }} \
+            --external
+
+      - name: Show K8s deployment status (K8s mode)
+        if: env.DEPLOY_TARGET == 'k8s'
+        run: |
+          kubectl get pods -n iot -o wide
+          kubectl get svc -n iot
+          kubectl get hpa -n iot

@@ -6,7 +6,12 @@ output "vm_id" {
   value = yandex_compute_instance.iot_vm.id
 }
 
-output "public_ip" {
+output "vm_internal_ip" {
+  value       = yandex_compute_instance.iot_vm.network_interface[0].ip_address
+  description = "Static internal IP of the DB VM (used in K8s ConfigMap)"
+}
+
+output "vm_public_ip" {
   value = yandex_compute_instance.iot_vm.network_interface[0].nat_ip_address
 }
 
@@ -29,4 +34,3 @@ output "backup_storage_secret_key" {
   description = "The secret access key for the backup storage service account"
   sensitive   = true
 }
-

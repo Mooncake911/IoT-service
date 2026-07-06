@@ -1,0 +1,180 @@
+- name: Deploy IoT to VM (Docker Compose) — Lab 2
+  hosts: iot_vm
+  become: false
+
+  vars:
+    deploy_dir: /home/ubuntu/iot-service
+    github_owner: ""
+    registry_username: ""
+    registry_password: ""
+    app_version: "latest"
+    deploy_action: "deploy"
+    enable_observability: false
+    backup_bucket_name: ""
+    backup_storage_access_key: ""
+    backup_storage_secret_key: ""
+
+  tasks:
+    - include_tasks: deploy-common.yml
+
+    # ========================================================================
+    # 5. BACKUP BEFORE DEPLOY (MongoDB)
+    # ========================================================================
+    - name: Create backup directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/backups"
+        state: directory
+        mode: "0755"
+
+    - name: Get running MongoDB containers
+      ansible.builtin.shell: |
+        docker ps --filter "name=mongodb" --format "{{ '{{.Names}}' }}"
+      register: mongodb_containers
+      changed_when: false
+      when: env_file.stat.exists
+
+    - name: Read MongoDB username from .env
+      ansible.builtin.shell: |
+        grep '^MONGO_USER=' "{{ deploy_dir }}/.env" | cut -d '=' -f2
+      register: mongo_user_raw
+      when: env_file.stat.exists
+      changed_when: false
+
+    - name: Read MongoDB password from .env
+      ansible.builtin.shell: |
+        grep '^MONGO_PASS=' "{{ deploy_dir }}/.env" | cut -d '=' -f2
+      register: mongo_pass_raw
+      when: env_file.stat.exists
+      changed_when: false
+
+    - name: Set MongoDB credentials as facts
+      ansible.builtin.set_fact:
+        mongo_user: "{{ mongo_user_raw.stdout | trim }}"
+        mongo_pass: "{{ mongo_pass_raw.stdout | trim }}"
+      when: env_file.stat.exists
+
+    - name: Dump each MongoDB container (with auth)
+      ansible.builtin.shell: |
+        docker exec {{ item }} mongodump \
+          --archive --gzip \
+          --username "{{ mongo_user }}" \
+          --password "{{ mongo_pass }}" \
+          --authenticationDatabase admin \
+          > "{{ deploy_dir }}/backups/{{ item }}_{{ ansible_facts['date_time']['iso8601_basic_short'] }}.archive"
+      loop: "{{ mongodb_containers.stdout_lines }}"
+      when:
+        - env_file.stat.exists
+        - mongodb_containers.stdout_lines | length > 0
+        - mongo_user != ''
+        - mongo_pass != ''
+      register: dump_results
+      changed_when: true
+
+    - name: Upload MongoDB backups to Yandex Object Storage
+      ansible.builtin.shell: |
+        docker run --rm \
+          -v "{{ deploy_dir }}/backups:/backups" \
+          -e MC_HOST_s3="https://{{ backup_storage_access_key }}:{{ backup_storage_secret_key }}@storage.yandexcloud.net" \
+          minio/mc:latest \
+          cp --recursive /backups/ s3/{{ backup_bucket_name }}/backups/
+      when:
+        - env_file.stat.exists
+        - backup_bucket_name | default('') != ''
+        - backup_storage_access_key | default('') != ''
+        - backup_storage_secret_key | default('') != ''
+        - mongodb_containers.stdout_lines | length > 0
+        - dump_results is defined
+      register: upload_result
+      failed_when: false
+      changed_when: upload_result.rc == 0
+
+    - name: Warn if backup upload failed
+      ansible.builtin.debug:
+        msg: >-
+          MongoDB backup upload to S3 failed (rc={{ upload_result.rc }}).
+          Deployment will continue. Check S3 permissions (bucket ACL grant +
+          kms.keys.encrypterDecrypter role for the storage SA) and re-run
+          terraform apply if the bucket was recently provisioned.
+          stderr: {{ upload_result.stderr | default('') | truncate(300) }}
+      when:
+        - upload_result is defined
+        - upload_result.rc is defined
+        - upload_result.rc != 0
+
+    - name: Create scripts directory
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}/scripts"
+        state: directory
+        mode: "0755"
+
+    - name: Template daily backup script
+      ansible.builtin.template:
+        src: backup.sh.j2
+        dest: "{{ deploy_dir }}/scripts/backup.sh"
+        mode: "0755"
+      when:
+        - backup_bucket_name | default('') != ''
+        - backup_storage_access_key | default('') != ''
+        - backup_storage_secret_key | default('') != ''
+
+    - name: Schedule daily MongoDB backup cron job
+      ansible.builtin.cron:
+        name: "Daily MongoDB backup"
+        minute: "0"
+        hour: "2"
+        job: "/bin/bash {{ deploy_dir }}/scripts/backup.sh >> {{ deploy_dir }}/backups/backup.log 2>&1"
+      when:
+        - backup_bucket_name | default('') != ''
+        - backup_storage_access_key | default('') != ''
+        - backup_storage_secret_key | default('') != ''
+
+    # ========================================================================
+    # 6. DEPLOYMENT
+    # ========================================================================
+    - name: Pull target Docker images
+      ansible.builtin.shell: |
+        COMPOSE_PARALLEL_LIMIT=2 docker compose --profile core --progress plain pull --include-deps
+      args:
+        chdir: "{{ deploy_dir }}"
+      async: 3600
+      poll: 20
+      register: pull_result
+      changed_when: true
+
+    - name: Start services with observability
+      ansible.builtin.shell: |
+        docker compose --profile core --profile observability up -d --remove-orphans
+      args:
+        chdir: "{{ deploy_dir }}"
+      when: enable_observability | bool
+      changed_when: true
+
+    - name: Start services core only
+      ansible.builtin.shell: |
+        docker compose --profile core up -d --remove-orphans
+      args:
+        chdir: "{{ deploy_dir }}"
+      when: not (enable_observability | bool)
+      changed_when: true
+
+    - name: Wait for API Gateway health check
+      ansible.builtin.uri:
+        url: "http://localhost:8085/api/v1/analytics/status"
+        status_code: 200
+      register: gateway_health
+      until: gateway_health.status == 200
+      retries: 60
+      delay: 10
+
+    # ========================================================================
+    # 7. VERIFICATION
+    # ========================================================================
+    - name: List running containers
+      ansible.builtin.shell: |
+        docker ps --format "table {{ '{{.Names}}' }}\t{{ '{{.Status}}' }}"
+      register: running_containers
+      changed_when: false
+
+    - name: Show running containers
+      ansible.builtin.debug:
+        var: running_containers.stdout_lines

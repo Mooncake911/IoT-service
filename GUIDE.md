@@ -6,20 +6,28 @@
 
 ### Core (быстрый локальный режим)
 ```powershell
-docker compose up -d --build
-docker compose ps
+docker compose --profile core up -d --build
+docker compose --profile core ps
 ```
 
 ### Core + Observability (ELK + Prometheus + Grafana)
 ```powershell
 $env:SPRING_PROFILES="docker,elk"
-docker compose --profile observability up -d --build
-docker compose --profile observability ps
+docker compose --profile core --profile observability up -d --build
+docker compose --profile core --profile observability ps
 ```
 
-Остановить всё:
+### Только базы данных (для Kubernetes режима)
 ```powershell
-docker compose down
+docker compose --profile db up -d --build
+docker compose --profile db ps
+```
+
+Остановить всё (по профилям):
+```powershell
+docker compose --profile core down
+docker compose --profile core --profile observability down
+docker compose --profile db down
 ```
 
 Полная очистка с volume:
@@ -162,12 +170,12 @@ docker compose logs -f iot-controller
 
 Логи logstash:
 ```powershell
-docker compose --profile observability logs -f logstash
+docker compose --profile core --profile observability logs -f logstash
 ```
 
 Быстрая проверка ELK:
 ```powershell
-docker compose --profile observability ps
+docker compose --profile core --profile observability ps
 Invoke-RestMethod -Uri "http://localhost:9200/_cluster/health" -Method Get
 Invoke-RestMethod -Uri "http://localhost:5601/api/status" -Headers @{ "kbn-xsrf" = "true" } -Method Get
 ```

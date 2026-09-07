@@ -13,13 +13,11 @@ data:
   SIMULATOR_URL: http://iot-data-simulator:8080
   CONTROLLER_URL: http://iot-controller:8080
 
-  # Внешние сервисы (MongoDB / RabbitMQ через Docker Compose)
-  # IP могут измениться после docker compose down/up — обновить: scripts/update-k8s-ips.sh
-  MONGO_CONTROLLER_URI: mongodb://admin:admin@172.19.0.3:27017/iot_db_controller?authSource=admin
-  MONGO_ANALYTICS_URI: mongodb://admin:admin@172.19.0.2:27017/iot_analytics_db?authSource=admin
-  MONGO_ALERTS_URI: mongodb://admin:admin@172.19.0.4:27017/iot_alerts_db?authSource=admin
+  MONGO_CONTROLLER_URI: mongodb://admin:admin@host.minikube.internal:27017/iot_db_controller?authSource=admin
+  MONGO_ANALYTICS_URI: mongodb://admin:admin@host.minikube.internal:27018/iot_analytics_db?authSource=admin
+  MONGO_ALERTS_URI: mongodb://admin:admin@host.minikube.internal:27019/iot_alerts_db?authSource=admin
 
-  RABBIT_HOST: 172.19.0.5
+  RABBIT_HOST: host.minikube.internal
   RABBIT_MQ_PORT: "5672"
   RABBIT_USER: guest
   RABBIT_PASS: guest

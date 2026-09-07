@@ -2,40 +2,41 @@
 
 Актуально для сервисов: `iot-data-simulator`, `iot-controller`, `iot-analytics`, `iot-alerts`, `iot-data-gateway`, `iot-dashboard`.
 
-## 1. Режимы запуска
+Все команды — из WSL, из корня репозитория.
 
-### Core (быстрый локальный режим)
-```powershell
+## 1. Режимы запуска (Docker Compose)
+
+### Core
+```bash
 docker compose --profile core up -d --build
 docker compose --profile core ps
 ```
 
 ### Core + Observability (ELK + Prometheus + Grafana)
-```powershell
-$env:SPRING_PROFILES="docker,elk"
-docker compose --profile core --profile observability up -d --build
+```bash
+SPRING_PROFILES="docker,elk" docker compose --profile core --profile observability up -d --build
 docker compose --profile core --profile observability ps
 ```
 
-### Только базы данных (для Kubernetes режима)
-```powershell
-docker compose --profile db up -d --build
+### Только базы данных (для Kubernetes-режима)
+```bash
+docker compose --profile db up -d
 docker compose --profile db ps
 ```
 
-Остановить всё (по профилям):
-```powershell
+Остановка:
+```bash
 docker compose --profile core down
 docker compose --profile core --profile observability down
 docker compose --profile db down
 ```
 
 Полная очистка с volume:
-```powershell
+```bash
 docker compose down -v
 ```
 
-## 2. Куда заходить (UI/HTTP)
+## 2. Куда заходить (UI/HTTP, compose-режим)
 
 - Dashboard UI (React/Vite): `http://localhost:8501`
 - Gateway: `http://localhost:8085`
@@ -50,103 +51,80 @@ docker compose down -v
 
 ## 3. RabbitMQ: как смотреть очереди
 
-### Через веб-интерфейс
-1. Открыть `http://localhost:15672`
-2. Логин/пароль: значения из `.env` (`RABBIT_USER` / `RABBIT_PASS`, обычно `guest/guest`)
-3. Перейти в раздел `Queues and Streams`
-4. Смотреть:
-   - `Ready` — ждут обработки
-   - `Unacked` — доставлены, но не подтверждены consumer’ом
-   - `Total` — суммарный размер очереди
+Через веб-интерфейс: `http://localhost:15672`, логин/пароль из `.env`
+(`RABBIT_USER` / `RABBIT_PASS`, обычно `guest/guest`), раздел
+`Queues and Streams`: `Ready` — ждут обработки, `Unacked` — доставлены
+без подтверждения, `Total` — размер очереди.
 
-### Через команду из контейнера
-```powershell
-docker exec -it rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
+```bash
+docker exec rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
+docker exec rabbitmq rabbitmq-diagnostics -q check_running
 ```
 
-Проверить общую диагностику:
-```powershell
-docker exec -it rabbitmq rabbitmq-diagnostics -q check_running
+Очереди: `iot-analytics.queue`, `iot-alerts.queue` на fanout exchange
+`iot.data.exchange`.
+
+## 4. Базовый E2E сценарий (через gateway)
+
+```bash
+GW=http://localhost:8085/api/v1
+
+curl -s -X POST "$GW/analytics/config?method=Parallel&windowSeconds=50"
+curl -s "$GW/analytics/status"
+curl -s -X POST "$GW/simulator/config?deviceCount=10&frequencySeconds=1"
+curl -s -X POST "$GW/simulator/start"
+curl -s "$GW/simulator/status"
+
+curl -s "$GW/analytics/history?limit=20"
+curl -s "$GW/analytics/live/summary"
+curl -s "$GW/analytics/live/by-type"
+curl -s "$GW/analytics/live/by-manufacturer"
+TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+FROM=$(date -u -d "10 minutes ago" +%Y-%m-%dT%H:%M:%SZ)
+curl -s "$GW/analytics/report/window?from=$FROM&to=$TO"
+
+curl -s "$GW/alerts?limit=20"
 ```
 
-## 4. Базовый E2E сценарий
+CRUD правил alerts:
 
-Настроить analytics (метод и длительность окна):
-```powershell
-# method: Sequential | Parallel
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/config?method=Parallel&windowSeconds=50" -Method Post
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/status" -Method Get
+```bash
+CREATED=$(curl -s -X POST "$GW/alerts/rules" -H "Content-Type: application/json" -d '{
+  "name": "low-battery-cooldown",
+  "type": "DURATION",
+  "severity": "WARNING",
+  "field": "BATTERY_LEVEL",
+  "operator": "LT",
+  "thresholdNumber": 20,
+  "requiredPackets": 3,
+  "cooldownSeconds": 30,
+  "enabled": true
+}')
+echo "$CREATED"
+curl -s "$GW/alerts/rules"
+ID=$(echo "$CREATED" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+curl -s -X DELETE "$GW/alerts/rules/$ID" -w " HTTP:%{http_code}\n"
 ```
 
-Настроить simulator:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/config?deviceCount=10&frequencySeconds=1" -Method Post
-```
+Остановка simulator:
 
-Запустить simulator:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/start" -Method Post
-```
-
-Проверить статус simulator:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/status" -Method Get
-```
-
-Проверить analytics:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/status" -Method Get
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/history?limit=20" -Method Get
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/summary" -Method Get
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/by-type" -Method Get
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/live/by-manufacturer" -Method Get
-$to = [DateTime]::UtcNow
-$from = $to.AddMinutes(-10)
-$fromIso = $from.ToString("yyyy-MM-ddTHH:mm:ssZ")
-$toIso = $to.ToString("yyyy-MM-ddTHH:mm:ssZ")
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/analytics/report/window?from=$fromIso&to=$toIso" -Method Get
-```
-
-Проверить alerts:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts?limit=20" -Method Get
-```
-
-Проверить CRUD правил alerts:
-```powershell
-$rule = @{
-  name = "low-battery-cooldown"
-  type = "DURATION"
-  severity = "WARNING"
-  field = "BATTERY_LEVEL"
-  operator = "LT"
-  thresholdNumber = 20
-  requiredPackets = 3
-  cooldownSeconds = 30
-  enabled = $true
-} | ConvertTo-Json
-
-$created = Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts/rules" -Method Post -Body $rule -ContentType "application/json"
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts/rules" -Method Get
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/alerts/rules/$($created.id)" -Method Delete
-```
-
-Остановить simulator:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/simulator/stop" -Method Post
+```bash
+curl -s -X POST "$GW/simulator/stop"
 ```
 
 ## 5. Проверка controller через gateway
 
-Внешний путь в gateway: `POST /api/v1/controller`  
-Внутренний путь controller: `POST /api/ingest`
+Внешний путь `POST /api/v1/controller`, внутренний — `POST /api/ingest`
+(принимает массив `DeviceData`, отвечает `202`):
 
-```powershell
-$json = '[{"id":42,"name":"device-42","manufacturer":"acme","type":"SENSOR_TEMPERATURE","capabilities":["temp"],"location":{"x":1,"y":2,"z":0},"status":{"isOnline":true,"batteryLevel":15,"signalStrength":5,"lastHeartbeat":"2026-01-12T12:00:00Z"}}]'
-Invoke-RestMethod -Uri "http://localhost:8085/api/v1/controller" -Method Post -Body $json -ContentType "application/json"
+```bash
+curl -s -X POST http://localhost:8085/api/v1/controller \
+  -H "Content-Type: application/json" \
+  -d '[{"id":42,"name":"device-42","manufacturer":"acme","type":"SENSOR_TEMPERATURE","capabilities":["temp"],"location":{"x":1,"y":2,"z":0},"status":{"isOnline":true,"batteryLevel":15,"signalStrength":5,"lastHeartbeat":"2026-01-12T12:00:00Z"}}]' \
+  -w "\nHTTP:%{http_code}\n"
 ```
 
-## 6. Базы данных
+## 6. Базы данных (compose-режим)
 
 - Mongo controller: `localhost:27017`
 - Mongo analytics: `localhost:27018`
@@ -157,42 +135,110 @@ Invoke-RestMethod -Uri "http://localhost:8085/api/v1/controller" -Method Post -B
 - Prometheus targets: `http://localhost:9090/targets`
 - Java метрики: `/actuator/prometheus`
 - RabbitMQ метрики: `http://localhost:15692/metrics`
-- Gateway API docs links: `http://localhost:8085/api/docs`
 - Kibana индекс логов: `logs-*`
 - Elasticsearch health: `http://localhost:9200/_cluster/health`
 
-## 8. Диагностика
+## 8. Kubernetes (minikube под Windows, управление из WSL)
 
-Логи сервиса:
-```powershell
+Minikube стартует на Windows (`minikube start`), дальше всё из WSL.
+Kubeconfig достать из контейнера minikube и подменить сервер на
+проброшенный порт (узнать через `docker ps`, `127.0.0.1:<port>->8443`):
+
+```bash
+docker exec minikube cat /etc/kubernetes/admin.conf \
+  | sed 's|server: https://.*:8443|server: https://127.0.0.1:<port>|' \
+  > ~/.kube/minikube-wsl.conf
+export KUBECONFIG=~/.kube/minikube-wsl.conf
+kubectl get nodes
+```
+
+БД поднимаются на хосте, поды ходят на хост через `host.minikube.internal`:
+
+```bash
+docker compose --profile db up -d
+```
+
+`k8s/configmap.yaml` по умолчанию уже указывает на
+`host.minikube.internal:27017/27018/27019` и `RABBIT_HOST:
+host.minikube.internal`. Для облачной VM переписать хост:
+
+```bash
+VM_INTERNAL_IP=<ip> ./scripts/update-k8s-ips.sh
+MINIKUBE=1 ./scripts/update-k8s-ips.sh
+```
+
+Деплой (порядок важен, `k8s/load-test/` применяется только вручную):
+
+```bash
+kubectl apply -f k8s/namespace.yaml -f k8s/configmap.yaml
+kubectl apply -R -f k8s/controller -f k8s/analytics -f k8s/alerts \
+  -f k8s/data-gateway -f k8s/data-simulator -f k8s/dashboard -f k8s/hpa.yaml
+kubectl apply -f k8s/metrics-server/components.yaml
+kubectl apply -R -f k8s/observability/prometheus -f k8s/observability/grafana
+kubectl get pods -n iot
+```
+
+Доступ через port-forward (gateway NodePort `30085`, grafana NodePort `31300`):
+
+```bash
+kubectl port-forward -n iot svc/iot-data-gateway 18085:8080 &
+kubectl port-forward -n iot svc/prometheus 19090:9090 &
+kubectl port-forward -n iot svc/grafana 13000:3000 &
+```
+
+Дальше разделы 4–5 с `GW=http://localhost:18085/api/v1`.
+Prometheus targets: `http://localhost:19090/api/v1/targets` (скрап
+по-подово через аннотации `prometheus.io/scrape`, лейблы `app`/`namespace`).
+Grafana health: `http://localhost:13000/api/health`.
+
+HPA (`k8s/hpa.yaml`): `iot-controller`, `iot-analytics`, `iot-alerts`,
+`cpu averageUtilization: 15%`, `min 1 / max 3`:
+
+```bash
+kubectl get hpa -n iot
+kubectl top pods -n iot
+```
+
+Нагрузочный тест — Job с k6 (валидный массив `DeviceData` в
+`POST /api/v1/controller`, 50 VU / 5 мин), только после Ready всех подов:
+
+```bash
+kubectl apply -f k8s/load-test/job.yaml
+kubectl get hpa -n iot -w
+```
+
+На одной ноде minikube полный прогон k6 может упереться в память —
+`maxReplicas: 3` и лимиты `768Mi` подобраны под это; в облаке (2 ноды)
+запас больше.
+
+## 9. Диагностика
+
+```bash
 docker compose logs -f iot-controller
-```
-
-Логи logstash:
-```powershell
 docker compose --profile core --profile observability logs -f logstash
-```
-
-Быстрая проверка ELK:
-```powershell
-docker compose --profile core --profile observability ps
-Invoke-RestMethod -Uri "http://localhost:9200/_cluster/health" -Method Get
-Invoke-RestMethod -Uri "http://localhost:5601/api/status" -Headers @{ "kbn-xsrf" = "true" } -Method Get
-```
-
-Если контейнер не поднялся:
-```powershell
 docker logs <container_name>
+kubectl get pods -n iot -o wide
+kubectl describe pod -n iot <pod>
+kubectl logs -n iot deploy/iot-controller --tail=50
+kubectl get events -n iot --sort-by=.lastTimestamp | tail -n 20
 ```
 
-## 9. Smoke-check
+Быстрая проверка ELK (compose observability):
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
+```bash
+curl -s http://localhost:9200/_cluster/health
+curl -s http://localhost:5601/api/status -H "kbn-xsrf: true"
 ```
 
-Smoke-check теперь валидирует не только ingest/history/alerts, но и новые ручки:
-- `/api/v1/analytics/live/summary`
-- `/api/v1/analytics/live/by-type`
-- `/api/v1/analytics/live/by-manufacturer`
-- `/api/v1/analytics/report/window`
+## 10. Smoke-check
+
+```bash
+powershell -ExecutionPolicy Bypass -File ./scripts/smoke-check.ps1
+```
+
+Валидирует ingest/history/alerts и ручки `live/summary`, `live/by-type`,
+`live/by-manufacturer`, `report/window`.
+
+## 11. Инфраструктура (Terraform + Ansible)
+
+Общий гайд: [`infra/GUIDE.md`](infra/GUIDE.md) — всё тоже запускается из WSL.

@@ -84,27 +84,47 @@
         msg: "kubectl is not installed. Install it before deploying to K8s."
       when: kubectl_check.rc != 0
 
-    - name: Update ConfigMap with DB VM internal IP
+    - name: Update ConfigMap Mongo hosts with DB VM IP
       ansible.builtin.replace:
         path: "{{ k8s_manifest_dir }}/configmap.yaml"
-        regexp: 'mongodb://admin:admin@[0-9.]+:27017'
-        replace: 'mongodb://admin:admin@{{ vm_internal_ip }}:27017'
+        regexp: 'mongodb://admin:admin@[^/:]+'
+        replace: 'mongodb://admin:admin@{{ vm_internal_ip }}'
 
     - name: Update RabbitMQ host in ConfigMap
       ansible.builtin.replace:
         path: "{{ k8s_manifest_dir }}/configmap.yaml"
-        regexp: 'RABBIT_HOST: [0-9.]+'
+        regexp: 'RABBIT_HOST: .*'
         replace: 'RABBIT_HOST: {{ vm_internal_ip }}'
 
-    - name: Apply core K8s manifests
+    - name: Apply namespace and config
       ansible.builtin.shell: |
-        kubectl apply -f "{{ k8s_manifest_dir }}/"
+        kubectl apply -f "{{ k8s_manifest_dir }}/namespace.yaml" \
+          -f "{{ k8s_manifest_dir }}/configmap.yaml"
+      register: kubectl_base
+      changed_when: '"configured" in kubectl_base.stdout or "created" in kubectl_base.stdout'
+
+    - name: Apply app workloads
+      ansible.builtin.shell: |
+        kubectl apply -R -f "{{ k8s_manifest_dir }}/controller" \
+          -f "{{ k8s_manifest_dir }}/analytics" \
+          -f "{{ k8s_manifest_dir }}/alerts" \
+          -f "{{ k8s_manifest_dir }}/data-gateway" \
+          -f "{{ k8s_manifest_dir }}/data-simulator" \
+          -f "{{ k8s_manifest_dir }}/dashboard" \
+          -f "{{ k8s_manifest_dir }}/hpa.yaml"
       register: kubectl_apply
       changed_when: '"configured" in kubectl_apply.stdout or "created" in kubectl_apply.stdout'
 
-    - name: Apply observability manifests (Prometheus + Grafana + ELK + Fluentbit)
+    - name: Apply metrics-server
       ansible.builtin.shell: |
-        kubectl apply -f "{{ k8s_manifest_dir }}/observability/"
+        kubectl apply -f "{{ k8s_manifest_dir }}/metrics-server/components.yaml"
+      register: metrics_apply
+      changed_when: '"configured" in metrics_apply.stdout or "created" in metrics_apply.stdout'
+      failed_when: false
+
+    - name: Apply observability manifests
+      ansible.builtin.shell: |
+        kubectl apply -R -f "{{ k8s_manifest_dir }}/observability/"
       register: observability_apply
       changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
       when: enable_observability

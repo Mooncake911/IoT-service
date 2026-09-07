@@ -30,14 +30,14 @@ spec:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 15
-            periodSeconds: 15
+            initialDelaySeconds: 90
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources

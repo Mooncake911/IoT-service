@@ -51,13 +51,24 @@ data:
     };
 
     export default function () {
-      const payload = JSON.stringify({
-        deviceId: `load-test-${__VU}-${Date.now()}`,
-        type: 'TEMPERATURE',
-        status: 'ONLINE',
-        location: { lat: 55.75, lng: 37.62 },
-        data: { value: Math.random() * 100 },
-      });
+      const id = Math.floor(Math.random() * 1000000);
+      const now = new Date().toISOString();
+      const payload = JSON.stringify([
+        {
+          id: id,
+          name: `load-test-${__VU}-${id}`,
+          manufacturer: 'acme',
+          type: 'SENSOR_TEMPERATURE',
+          capabilities: ['temp'],
+          location: { x: 1, y: 2, z: 0 },
+          status: {
+            isOnline: true,
+            batteryLevel: 15 + Math.floor(Math.random() * 80),
+            signalStrength: 5 + Math.floor(Math.random() * 90),
+            lastHeartbeat: now,
+          },
+        },
+      ]);
 
       const res = http.post(`${BASE_URL}/api/v1/controller`, payload, {
         headers: { 'Content-Type': 'application/json' },

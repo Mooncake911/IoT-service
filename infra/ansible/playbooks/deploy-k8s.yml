@@ -129,17 +129,21 @@
       changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
       when: enable_observability | bool
 
-    - name: Check Elasticsearch rollout status (observability mode)
+    - name: Check observability rollout status (observability mode)
       ansible.builtin.shell: |
-        kubectl rollout status -n iot statefulset/elasticsearch --timeout=300s
+        kubectl rollout status -n iot {{ item }} --timeout=300s
+      loop:
+        - statefulset/elasticsearch
+        - deployment/logstash
+        - deployment/kibana
       when: enable_observability | bool
       changed_when: false
       failed_when: false
-      register: es_rollout
+      register: rollout_statuses
 
-    - name: Show Elasticsearch rollout status
+    - name: Show observability rollout statuses
       ansible.builtin.debug:
-        var: es_rollout.stdout_lines
+        var: rollout_statuses.results | map(attribute='stdout_lines')
       when: enable_observability | bool
 
     - name: Wait for Elasticsearch pod to be ready (observability mode)

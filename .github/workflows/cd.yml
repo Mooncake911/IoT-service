@@ -72,15 +72,11 @@ jobs:
 
       - name: Save Yandex Service Account Key
         if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
-          echo '${{ secrets.YC_SA_KEY_JSON }}' > /tmp/yc-sa-key.json
+          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> $GITHUB_ENV
-
-      - name: Verify service account key file
-        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
-        run: |
-          cat /tmp/yc-sa-key.json | jq . > /dev/null
-          echo "✅ Key file is valid JSON"
 
       - name: Run Terraform Apply
         id: terraform
@@ -256,8 +252,10 @@ jobs:
 
       - name: Get kubeconfig from Yandex Cloud (K8s mode)
         if: env.DEPLOY_TARGET == 'k8s'
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
-          echo "${{ secrets.YC_SA_KEY_JSON }}" > /tmp/yc-sa-key.json
+          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
           yc managed-kubernetes cluster get-credentials \
             --name ${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }} \
@@ -265,13 +263,15 @@ jobs:
 
       - name: Teardown K8s app workloads before VM deploy
         if: env.DEPLOY_TARGET == 'vm'
+        env:
+          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
           set -euo pipefail
           if [ -z "${{ vars.K8S_CLUSTER_NAME }}" ]; then
             echo "No K8s cluster configured, skip teardown."
             exit 0
           fi
-          echo '${{ secrets.YC_SA_KEY_JSON }}' > /tmp/yc-sa-key.json
+          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
           if ! yc managed-kubernetes cluster get --name ${{ vars.K8S_CLUSTER_NAME }} >/dev/null 2>&1; then
             echo "Cluster ${{ vars.K8S_CLUSTER_NAME }} not found, skip teardown."

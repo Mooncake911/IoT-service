@@ -123,6 +123,17 @@
       changed_when: '"configured" in metrics_apply.stdout or "created" in metrics_apply.stdout'
       failed_when: false
 
+    - name: Wait for metrics API (HPA dependency)
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=300s
+      changed_when: false
+      failed_when: false
+      register: metrics_api
+
+    - name: Show metrics API status
+      ansible.builtin.debug:
+        var: metrics_api.stdout_lines
+
     - name: Apply observability manifests
       ansible.builtin.shell: |
         kubectl apply -R -f "{{ k8s_manifest_dir }}/observability/"
@@ -190,9 +201,33 @@
       ansible.builtin.debug:
         var: kubectl_apply.stdout_lines
 
+    - name: Check app workloads rollout status
+      ansible.builtin.shell: |
+        kubectl rollout status -n iot {{ item }} --timeout=300s
+      loop:
+        - deployment/iot-controller
+        - deployment/iot-analytics
+        - deployment/iot-alerts
+        - deployment/iot-data-gateway
+        - deployment/iot-data-simulator
+        - deployment/iot-dashboard-ui
+      changed_when: false
+      failed_when: false
+      register: app_rollouts
+
+    - name: Show app workloads rollout statuses
+      ansible.builtin.debug:
+        var: app_rollouts.results | map(attribute='stdout_lines')
+
+    - name: Remove completed load-test job leftovers
+      ansible.builtin.shell: |
+        kubectl delete job -n iot load-test --ignore-not-found
+      changed_when: false
+      failed_when: false
+
     - name: Wait for all pods to be ready
       ansible.builtin.shell: |
-        kubectl wait --for=condition=Ready pods --all -n iot --timeout=180s
+        kubectl wait --for=condition=Ready pods --all -n iot --timeout=600s
       register: wait_pods
       changed_when: false
 

@@ -57,13 +57,13 @@ spec:
             httpGet:
               path: /_cluster/health
               port: 9200
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15
           livenessProbe:
             httpGet:
               path: /_cluster/health
               port: 9200
-            initialDelaySeconds: 60
+            initialDelaySeconds: 150
             periodSeconds: 20
   volumeClaimTemplates:
     - metadata:

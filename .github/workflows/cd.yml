@@ -241,6 +241,28 @@ jobs:
         run: |
           ansible-playbook playbooks/install-docker.yml -i inventory.ini
 
+      - name: Install kubectl (K8s and VM-teardown paths)
+        if: env.DEPLOY_TARGET == 'k8s' || (env.DEPLOY_TARGET == 'vm' && vars.K8S_CLUSTER_NAME != '')
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Install Yandex Cloud CLI (K8s and VM-teardown paths)
+        if: env.DEPLOY_TARGET == 'k8s' || (env.DEPLOY_TARGET == 'vm' && vars.K8S_CLUSTER_NAME != '')
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Get kubeconfig from Yandex Cloud (K8s mode)
+        if: env.DEPLOY_TARGET == 'k8s'
+        run: |
+          echo "${{ secrets.YC_SA_KEY_JSON }}" > /tmp/yc-sa-key.json
+          yc config set service-account-key /tmp/yc-sa-key.json
+          yc managed-kubernetes cluster get-credentials \
+            --name ${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }} \
+            --external
+
       - name: Teardown K8s app workloads before VM deploy
         if: env.DEPLOY_TARGET == 'vm'
         run: |
@@ -249,11 +271,6 @@ jobs:
             echo "No K8s cluster configured, skip teardown."
             exit 0
           fi
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          export PATH="$HOME/yandex-cloud/bin:$PATH"
           echo '${{ secrets.YC_SA_KEY_JSON }}' > /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
           if ! yc managed-kubernetes cluster get --name ${{ vars.K8S_CLUSTER_NAME }} >/dev/null 2>&1; then
@@ -320,28 +337,6 @@ jobs:
       # ============================================================
       # K8S POST-DEPLOY
       # ============================================================
-      - name: Install kubectl (K8s mode)
-        if: env.DEPLOY_TARGET == 'k8s'
-        run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      - name: Install Yandex Cloud CLI (K8s mode)
-        if: env.DEPLOY_TARGET == 'k8s'
-        run: |
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
-
-      - name: Get kubeconfig from Yandex Cloud (K8s mode)
-        if: env.DEPLOY_TARGET == 'k8s'
-        run: |
-          echo "${{ secrets.YC_SA_KEY_JSON }}" > /tmp/yc-sa-key.json
-          yc config set service-account-key /tmp/yc-sa-key.json
-          yc managed-kubernetes cluster get-credentials \
-            --name ${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }} \
-            --external
-
       - name: Show K8s deployment status (K8s mode)
         if: env.DEPLOY_TARGET == 'k8s'
         run: |

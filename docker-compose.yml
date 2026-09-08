@@ -409,7 +409,7 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      LOGSTASH_HOST: ${LOGSTASH_HOST}
+      LOGSTASH_HOST: ${LOGSTASH_HOST:-}
     command: [ "--strict.perms=false" ]
     restart: unless-stopped
     networks:

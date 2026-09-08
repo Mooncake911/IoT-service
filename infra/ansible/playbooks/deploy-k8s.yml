@@ -127,19 +127,19 @@
         kubectl apply -R -f "{{ k8s_manifest_dir }}/observability/"
       register: observability_apply
       changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
-      when: enable_observability
+      when: enable_observability | bool
 
     - name: Wait for Logstash pod to be ready (observability mode)
       ansible.builtin.shell: |
         kubectl wait --for=condition=Ready pod -l app=logstash -n iot --timeout=180s
-      when: enable_observability
+      when: enable_observability | bool
       changed_when: false
 
     - name: Get K8s node internal IP for Filebeat
       ansible.builtin.shell: |
         kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
       register: k8s_node_ip
-      when: enable_observability
+      when: enable_observability | bool
       changed_when: false
 
     - name: Start Filebeat on VM with Logstash host
@@ -148,7 +148,7 @@
       delegate_to: "{{ item }}"
       loop: "{{ groups['iot_vm'] }}"
       when:
-        - enable_observability
+        - enable_observability | bool
         - k8s_node_ip.stdout | length > 0
 
     - name: Start filebeat on VM
@@ -159,7 +159,7 @@
       delegate_to: "{{ item }}"
       loop: "{{ groups['iot_vm'] }}"
       when:
-        - enable_observability
+        - enable_observability | bool
         - k8s_node_ip.stdout | length > 0
 
     - name: Show kubectl apply output

@@ -69,6 +69,7 @@
 
   vars:
     k8s_manifest_dir: "{{ playbook_dir }}/../../../k8s"
+    deploy_dir: /home/ubuntu/iot-service
     vm_internal_ip: "10.10.0.100"
     enable_observability: false
 

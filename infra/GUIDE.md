@@ -207,6 +207,26 @@ ansible-playbook playbooks/deploy-k8s.yml \
 только вручную после Ready. С `-e "enable_observability=true"` дополнительно
 применяет `k8s/observability/` (Prometheus, Grafana, ELK, Fluent Bit).
 
+## Переключение VM ↔ K8s
+
+Активный бэкенд в каждый момент только один, иначе будет двойная запись.
+
+VM → K8s гасится само: `deploy-k8s.yml` поднимает `compose --profile db`
+с `--remove-orphans`, compose-контейнеры приложения при этом сносятся.
+
+K8s → VM гасится само в CI: перед Ansible-деплоем `cd.yml` удаляет
+workload'ы и HPA из namespace `iot` (мониторинг, namespace и ConfigMap
+остаются) и ждёт их терминации; затем идёт smoke-чек гейтвея. Если
+кластера нет (первый VM-деплой) — шаг пропускается, это не ошибка.
+Параллельные запуски CD сериализованы (`concurrency: cd-<target>`),
+т.к. S3-бэкенд без локинга.
+
+Вручную перед ручным `deploy-vm.yml`:
+
+```bash
+./scripts/k8s-down.sh
+```
+
 ## CI/CD
 
 Связь outputs Terraform → переменные `cd.yml`:

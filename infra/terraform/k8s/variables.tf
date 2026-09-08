@@ -52,7 +52,7 @@ variable "k8s_node_memory" {
 variable "k8s_node_disk" {
   type        = number
   description = "Boot disk size in GB per K8s node"
-  default     = 20
+  default     = 32
 }
 
 variable "k8s_node_core_fraction" {

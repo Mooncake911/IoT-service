@@ -211,6 +211,13 @@ kubectl get hpa -n iot -w
 `maxReplicas: 3` и лимиты `768Mi` подобраны под это; в облаке (2 ноды)
 запас больше.
 
+Снос workload'ов перед переходом обратно на VM (мониторинг, namespace
+и ConfigMap остаются):
+
+```bash
+./scripts/k8s-down.sh
+```
+
 ## 9. Диагностика
 
 ```bash

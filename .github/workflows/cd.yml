@@ -38,6 +38,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: cd-${{ github.event.inputs.deploy_target }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy to Yandex Cloud
@@ -237,6 +241,30 @@ jobs:
         run: |
           ansible-playbook playbooks/install-docker.yml -i inventory.ini
 
+      - name: Teardown K8s app workloads before VM deploy
+        if: env.DEPLOY_TARGET == 'vm'
+        run: |
+          set -euo pipefail
+          if [ -z "${{ vars.K8S_CLUSTER_NAME }}" ]; then
+            echo "No K8s cluster configured, skip teardown."
+            exit 0
+          fi
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          export PATH="$HOME/yandex-cloud/bin:$PATH"
+          echo '${{ secrets.YC_SA_KEY_JSON }}' > /tmp/yc-sa-key.json
+          yc config set service-account-key /tmp/yc-sa-key.json
+          if ! yc managed-kubernetes cluster get --name ${{ vars.K8S_CLUSTER_NAME }} >/dev/null 2>&1; then
+            echo "Cluster ${{ vars.K8S_CLUSTER_NAME }} not found, skip teardown."
+            exit 0
+          fi
+          yc managed-kubernetes cluster get-credentials \
+            --name ${{ vars.K8S_CLUSTER_NAME }} \
+            --external
+          ./scripts/k8s-down.sh
+
       - name: Run Ansible Application Deployment (VM mode)
         if: env.DEPLOY_TARGET == 'vm'
         working-directory: infra/ansible
@@ -275,6 +303,19 @@ jobs:
             echo "ERROR: Some containers did not start correctly! Total running containers ($RUNNING_COUNT) is less than expected ($EXPECTED)."
             exit 1
           fi
+
+      - name: Smoke-check gateway after VM deploy
+        if: env.DEPLOY_TARGET == 'vm'
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf "http://${{ env.VM_IP }}:8085/api/v1/analytics/status" >/dev/null; then
+              echo "Gateway OK"
+              break
+            fi
+            echo "Waiting for gateway (attempt $i/30)..."
+            sleep 10
+          done
+          curl -sf "http://${{ env.VM_IP }}:8085/api/v1/simulator/status"
 
       # ============================================================
       # K8S POST-DEPLOY

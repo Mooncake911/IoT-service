@@ -24,9 +24,8 @@ data:
         match kube.*
         merge_log on
         keep_log off
-        k8s-logger.parser json
-        K8S-Logging.Parser On
-        K8S-Logging.Exclude On
+        k8s-logging.parser on
+        k8s-logging.exclude on
 
     [OUTPUT]
         name tcp

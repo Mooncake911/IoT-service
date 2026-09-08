@@ -178,8 +178,12 @@
       changed_when: false
 
     - name: Start Filebeat on VM with Logstash host
-      ansible.builtin.shell: |
-        sed -i 's/^LOGSTASH_HOST=.*/LOGSTASH_HOST={{ k8s_node_ip.stdout }}:30444/' {{ deploy_dir }}/.env
+      ansible.builtin.lineinfile:
+        path: "{{ deploy_dir }}/.env"
+        regexp: "^LOGSTASH_HOST="
+        line: "LOGSTASH_HOST={{ k8s_node_ip.stdout }}:30444"
+        create: true
+        mode: "0600"
       delegate_to: "{{ item }}"
       loop: "{{ groups['iot_vm'] }}"
       when:

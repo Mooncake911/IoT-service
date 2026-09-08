@@ -40,6 +40,49 @@ infra/
 S3-бэкендом (`iot-state-terraform`). Порядок строгий: `base` → `vm` → `k8s`
 (`vm` и `k8s` тянут сеть через `terraform_remote_state`).
 
+### 0. Bootstrap (один раз вручную)
+
+Бакет под стейт не может создать сам себя — до первого `init` его нужно
+создать один раз (потом всё идёт автоматом):
+
+```bash
+yc storage bucket create --name iot-state-terraform
+```
+
+Сама учётка, от имени которой идёт работа, должна иметь роль `editor`
+на каталог и доступ к Object Storage, иначе `apply` упадёт с
+`PermissionDenied` / S3 `AccessDenied`:
+
+```bash
+SA_ID=$(yc iam service-account get --name <sa-name> --format value'(id)')
+yc resource-manager folder add-access-binding <folder-id> \
+  --role editor --subject serviceAccount:$SA_ID
+```
+
+Ключи для S3-бэкенда (`access_key`/`secret_key` в `init -backend-config`)
+должны принадлежать сервисному аккаунту с правами на Object Storage
+(роль `storage.admin` на каталог); создать их можно так:
+
+```bash
+yc iam access-key create --service-account-name <sa-name>
+```
+
+Если `yc` сам отвечает `PermissionDenied` даже на чтение (`vpc network get`,
+`folder list-access-bindings`) — дело не в Terraform, а в профиле: сверь,
+куда вообще смотрит CLI и что тебе видно:
+
+```bash
+yc config list
+yc resource-manager folder list
+```
+
+`folder-id` в выводе должен совпадать с каталогом из `terraform.tfvars`.
+Если нужного каталога нет в списке — доступ тебе должен выдать
+владелец/админ каталога (роль `editor` на твоего пользователя или на
+сервисный аккаунт), после этого повторить `apply`. Несозданные ресурсы
+импортировать не нужно; локальный `errored.tfstate` от упавших прогонов
+можно удалить.
+
 Подготовка переменных (в каждом каталоге):
 
 ```bash

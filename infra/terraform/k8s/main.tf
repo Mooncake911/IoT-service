@@ -97,8 +97,8 @@ resource "yandex_kubernetes_cluster" "iot" {
     version   = var.k8s_version
     public_ip = true
     zonal {
-      zone       = data.terraform_remote_state.base.outputs.zone
-      subnet_ids = [data.terraform_remote_state.base.outputs.subnet_id]
+      zone      = data.terraform_remote_state.base.outputs.zone
+      subnet_id = data.terraform_remote_state.base.outputs.subnet_id
     }
     security_group_ids = [yandex_vpc_security_group.k8s_node_sg.id]
   }
@@ -148,8 +148,8 @@ resource "yandex_kubernetes_node_group" "default" {
 
   allocation_policy {
     location {
-      zone       = data.terraform_remote_state.base.outputs.zone
-      subnet_ids = [data.terraform_remote_state.base.outputs.subnet_id]
+      zone      = data.terraform_remote_state.base.outputs.zone
+      subnet_id = data.terraform_remote_state.base.outputs.subnet_id
     }
   }
 }

@@ -259,6 +259,7 @@ jobs:
           yc config set service-account-key /tmp/yc-sa-key.json
           yc managed-kubernetes cluster get-credentials \
             --name ${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }} \
+            --folder-id ${{ secrets.YC_FOLDER_ID }} \
             --external
 
       - name: Teardown K8s app workloads before VM deploy
@@ -273,12 +274,13 @@ jobs:
           fi
           ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
-          if ! yc managed-kubernetes cluster get --name ${{ vars.K8S_CLUSTER_NAME }} >/dev/null 2>&1; then
+          if ! yc managed-kubernetes cluster get --name ${{ vars.K8S_CLUSTER_NAME }} --folder-id ${{ secrets.YC_FOLDER_ID }} >/dev/null 2>&1; then
             echo "Cluster ${{ vars.K8S_CLUSTER_NAME }} not found, skip teardown."
             exit 0
           fi
           yc managed-kubernetes cluster get-credentials \
             --name ${{ vars.K8S_CLUSTER_NAME }} \
+            --folder-id ${{ secrets.YC_FOLDER_ID }} \
             --external
           ./scripts/k8s-down.sh
 

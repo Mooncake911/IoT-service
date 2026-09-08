@@ -63,6 +63,12 @@ resource "yandex_resourcemanager_folder_iam_member" "k8s_sa_puller" {
   member    = "serviceAccount:${yandex_iam_service_account.k8s_sa.id}"
 }
 
+resource "yandex_resourcemanager_folder_iam_member" "k8s_sa_editor" {
+  folder_id = var.yc_folder_id
+  role      = "editor"
+  member    = "serviceAccount:${yandex_iam_service_account.k8s_sa.id}"
+}
+
 # Security group for K8s nodes
 resource "yandex_vpc_security_group" "k8s_node_sg" {
   name       = "${var.k8s_cluster_name}-node-sg"
@@ -111,6 +117,7 @@ resource "yandex_kubernetes_cluster" "iot" {
   depends_on = [
     yandex_resourcemanager_folder_iam_member.k8s_sa_agent,
     yandex_resourcemanager_folder_iam_member.k8s_sa_puller,
+    yandex_resourcemanager_folder_iam_member.k8s_sa_editor,
   ]
 }
 
@@ -148,8 +155,7 @@ resource "yandex_kubernetes_node_group" "default" {
 
   allocation_policy {
     location {
-      zone      = data.terraform_remote_state.base.outputs.zone
-      subnet_id = data.terraform_remote_state.base.outputs.subnet_id
+      zone = data.terraform_remote_state.base.outputs.zone
     }
   }
 }

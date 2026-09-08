@@ -129,9 +129,15 @@
       changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
       when: enable_observability | bool
 
+    - name: Wait for Elasticsearch pod to be ready (observability mode)
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=Ready pod -l app=elasticsearch -n iot --timeout=600s
+      when: enable_observability | bool
+      changed_when: false
+
     - name: Wait for Logstash pod to be ready (observability mode)
       ansible.builtin.shell: |
-        kubectl wait --for=condition=Ready pod -l app=logstash -n iot --timeout=180s
+        kubectl wait --for=condition=Ready pod -l app=logstash -n iot --timeout=600s
       when: enable_observability | bool
       changed_when: false
 

@@ -44,14 +44,14 @@ spec:
             httpGet:
               path: /
               port: 9600
-            initialDelaySeconds: 30
-            periodSeconds: 15
+            initialDelaySeconds: 120
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /
               port: 9600
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15
       volumes:
         - name: config
           configMap:

@@ -39,11 +39,11 @@ spec:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 30
-            periodSeconds: 15
+            initialDelaySeconds: 120
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15

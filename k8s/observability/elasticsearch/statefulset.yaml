@@ -17,6 +17,8 @@ spec:
         app: elasticsearch
     spec:
       terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: elasticsearch
           image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0

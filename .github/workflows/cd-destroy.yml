@@ -64,6 +64,9 @@ jobs:
       # ============================================================
       - name: Determine VM IP
         if: github.event.inputs.target == 'vm'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
         run: |
           if [ -n "${{ vars.VM_IP }}" ]; then
             echo "VM_IP=${{ vars.VM_IP }}" >> "$GITHUB_ENV"
@@ -92,6 +95,9 @@ jobs:
 
       - name: Get Backup Storage Details from Terraform
         if: github.event.inputs.target == 'vm'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
         run: |
           if [ ! -d "infra/terraform/vm/.terraform" ]; then
             cd infra/terraform/vm

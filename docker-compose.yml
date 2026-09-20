@@ -350,8 +350,8 @@ services:
 
   # --- FILEBEAT (Docker logs of the DB VM → Logstash in cluster, K8s mode only).
   # NOT a duplicate of Fluent Bit: filebeat ships /var/lib/docker/containers
-  # from the VM host, fluent-bit (k8s/observability/fluentbit/) ships pod logs
-  # inside the cluster. Different sources, one Logstash pipeline.
+  # from the VM host, fluent-bit ships pod logs inside the cluster.
+  # Different sources, one Logstash pipeline.
 
   filebeat:
     <<: *base-service

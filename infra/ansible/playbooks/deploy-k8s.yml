@@ -115,9 +115,15 @@
         msg: "kubectl is not installed. Install it before deploying to K8s."
       when: kubectl_check.rc != 0
 
-    - name: Resolve target image version (rollback aware)
-      ansible.builtin.set_fact:
-        target_version: "{{ hostvars[groups['iot_vm'][0]]['rollback_version'] | default(app_version, true) if deploy_action == 'rollback' else app_version }}"
+    # NOTE: workload manifests in k8s/ are applied ONLY by ArgoCD from git
+    # (k8s/ root via iot-app Application). The desired image tags are
+    # committed to k8s/overlays/* by CI/CD (kustomize-set-image) BEFORE
+    # this playbook runs — never kubectl set image here, it would fight
+    # ArgoCD selfHeal. This play prepares everything ArgoCD must not
+    # own: namespace-adjacent Secrets/ConfigMaps with live values.
+    # The no-ArgoCD fallback below (Lab 3 mode without GitOps) applies
+    # the same local tree directly — tags still come from git,
+    # so there is nothing to pin here either.
 
     # .env is the single source of truth for secrets (VM compose path reads
     # it natively; here we load the same file for the K8s path). To migrate
@@ -173,25 +179,6 @@
       register: prom_sd
       changed_when: true
 
-    - name: Apply app workloads with Kustomize
-      ansible.builtin.shell: |
-        kubectl apply -k "{{ k8s_manifest_dir }}/"
-      register: kubectl_apply
-      changed_when: '"configured" in kubectl_apply.stdout or "created" in kubectl_apply.stdout'
-
-    - name: Pin workload images to target version
-      ansible.builtin.shell: |
-        kubectl -n iot set image deployment/{{ item }} app=ghcr.io/{{ github_owner | lower }}/iot-service/{{ item }}:{{ target_version }}
-      loop:
-        - iot-controller
-        - iot-analytics
-        - iot-alerts
-        - iot-data-gateway
-        - iot-data-simulator
-        - iot-dashboard-ui
-      register: set_images
-      changed_when: true
-
     - name: Check metrics-server API (HPA dependency)
       ansible.builtin.shell: |
         kubectl get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
@@ -199,17 +186,26 @@
       changed_when: false
       failed_when: false
 
+    - name: Apply app workloads with Kustomize (no-ArgoCD mode only)
+      ansible.builtin.shell: |
+        kubectl apply -k "{{ k8s_manifest_dir }}/"
+      register: kubectl_apply
+      changed_when: '"configured" in kubectl_apply.stdout or "created" in kubectl_apply.stdout'
+      when: not (enable_argocd | bool)
+
     - name: Fail if metrics-server API is not available
       ansible.builtin.fail:
         msg: "metrics.k8s.io API is not Available. Enable it first (minikube: `minikube addons enable metrics-server`; managed K8s: preinstalled, check `kubectl top nodes`). HPA needs it."
       when: metrics_api.stdout != 'True'
 
-    - name: Apply observability manifests
+    - name: Apply observability manifests (no-ArgoCD mode only)
       ansible.builtin.shell: |
         kubectl apply -k "{{ k8s_manifest_dir }}/observability/"
       register: observability_apply
       changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
-      when: enable_observability | bool
+      when:
+        - not (enable_argocd | bool)
+        - enable_observability | bool
 
     - name: Sync grafana-admin Secret from repo .env
       ansible.builtin.shell: |
@@ -224,9 +220,10 @@
 
     # ============================================================
     # ArgoCD GitOps (Lab 4, opt-in via enable_argocd=true).
-    # Installs ArgoCD core once, then hands sync over to Applications
-    # in k8s/argocd/. Direct kubectl apply above stays as the
-    # bootstrap path; ArgoCD keeps the cluster converged afterwards.
+    # Installs ArgoCD core once, then ArgoCD owns ALL workload sync
+    # from git (Applications in k8s/argocd/). This play only prepares
+    # what ArgoCD must not own (Secrets/ConfigMaps with live values)
+    # and waits for rollout — no direct workload apply here.
     # ============================================================
     - name: Install ArgoCD core
       ansible.builtin.shell: |
@@ -286,10 +283,6 @@
         kubectl wait --for=condition=Ready pod -l app=logstash -n iot --timeout=600s
       when: enable_observability | bool
       changed_when: false
-
-    - name: Show kubectl apply output
-      ansible.builtin.debug:
-        var: kubectl_apply.stdout_lines
 
     - name: Check app workloads rollout status
       ansible.builtin.shell: |

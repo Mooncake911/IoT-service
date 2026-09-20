@@ -1,4 +1,4 @@
-name: CD
+name: CD VM
 
 on:
   workflow_dispatch:
@@ -25,28 +25,18 @@ on:
         required: true
         default: false
         type: boolean
-      enable_argocd:
-        description: "Install ArgoCD and hand sync to GitOps Applications (K8s only)?"
-        required: true
-        default: false
-        type: boolean
-      deploy_target:
-        description: "Deploy target (vm for Docker Compose, k8s for Managed K8s)"
-        required: true
-        default: "vm"
-        type: choice
-        options:
-          - vm
-          - k8s
 
+permissions:
+  contents: read
+  packages: write
 
 concurrency:
-  group: cd-${{ github.event.inputs.deploy_target }}
+  group: cd-vm
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to Yandex Cloud
+    name: Deploy to Yandex Cloud VM
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -73,9 +63,16 @@ jobs:
 
             TAG_INPUT="${{ github.event.inputs.tag }}"
             if [ -z "$TAG_INPUT" ]; then
-              TAG_INPUT="${{ github.sha }}"
+              # Default to the git-pinned tag from k8s/overlays so VM and K8s
+              # deploy the same version unless overridden explicitly.
+              PINNED="$(grep -rhE '^[[:space:]]*newTag: ' k8s/overlays/*/kustomization.yaml 2>/dev/null | sort -u || true)"
+              if [ "$(printf '%s\n' "$PINNED" | wc -l)" -eq 1 ] && [ -n "$PINNED" ]; then
+                TAG_INPUT="$(printf '%s' "$PINNED" | sed -E 's/^[[:space:]]*newTag: //')"
+                echo "Using git-pinned tag: $TAG_INPUT"
+              else
+                TAG_INPUT="${{ github.sha }}"
+              fi
             fi
-            echo "DEPLOY_TARGET=${{ github.event.inputs.deploy_target }}"
             echo "TAG=$TAG_INPUT"
             echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}"
             echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}"
@@ -89,55 +86,37 @@ jobs:
 
       - name: Save Yandex Service Account Key
         if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
-        env:
-          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
         run: |
           ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> "$GITHUB_ENV"
 
-      - name: Run Terraform Apply
-        id: terraform
+      - name: Run Terraform Apply (base)
         if: ${{ env.RUN_TERRAFORM == 'true' }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
-        run: |
-          # Apply network base
-          cd infra/terraform/base
-          terraform init -input=false \
-            -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
-            -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
-          terraform apply -auto-approve \
-            -var="yc_cloud_id=$YC_CLOUD_ID" \
-            -var="yc_folder_id=$YC_FOLDER_ID" \
-            -var="yc_service_account_key_file=/tmp/yc-sa-key.json"
-          # Apply VM
-          cd ../vm
-          terraform init -input=false \
-            -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
-            -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
-          terraform apply -auto-approve \
-            -var="yc_cloud_id=$YC_CLOUD_ID" \
-            -var="yc_folder_id=$YC_FOLDER_ID" \
-            -var="yc_service_account_key_file=/tmp/yc-sa-key.json" \
-            -var="ssh_public_key=$SSH_PUBLIC_KEY"
-          # Apply K8s if deploy target is k8s
-          if [ "${{ env.DEPLOY_TARGET }}" = "k8s" ]; then
-            cd ../k8s
-            terraform init -input=false \
-              -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
-              -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
-            terraform apply -auto-approve \
-              -var="yc_cloud_id=$YC_CLOUD_ID" \
-              -var="yc_folder_id=$YC_FOLDER_ID" \
-              -var="yc_service_account_key_file=/tmp/yc-sa-key.json"
-          fi
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: base
+          operation: apply
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+
+      - name: Run Terraform Apply (vm)
+        if: ${{ env.RUN_TERRAFORM == 'true' }}
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: vm
+          operation: apply
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          ssh-public-key: ${{ secrets.SSH_PUBLIC_KEY }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
 
       - name: Determine VM IP
         id: get-ip
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
         run: |
           if [ -n "${{ vars.VM_IP }}" ]; then
             echo "VM_IP=${{ vars.VM_IP }}" >> "$GITHUB_ENV"
@@ -157,9 +136,6 @@ jobs:
 
       - name: Get Backup Storage Details from Terraform
         id: get-backup-details
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
         run: |
           if [ ! -d "infra/terraform/vm/.terraform" ]; then
             cd infra/terraform/vm
@@ -185,20 +161,12 @@ jobs:
             echo "BACKUP_SECRET_KEY=$BACKUP_SECRET_KEY"
           } >> "$GITHUB_ENV"
 
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-      - name: Wait for VM SSH connection
-        run: |
-          echo "Checking SSH connectivity to ${{ env.VM_IP }}..."
-          for i in {1..30}; do
-            nc -z -w5 ${{ env.VM_IP }} 22 && echo "SSH is open!" && break
-            echo "Waiting for SSH to be ready (attempt $i/30)..."
-            sleep 10
-          done
+      - name: Set up SSH and inventory
+        uses: ./.github/actions/setup-ssh-vm
+        with:
+          vm-ip: ${{ env.VM_IP }}
+          ssh-user: ubuntu
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Install Ansible
         run: |
@@ -233,51 +201,30 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
 
-      - name: Generate Ansible Inventory
-        env:
-          VM_IP: ${{ env.VM_IP }}
-        run: ./scripts/update-inventory.sh infra/ansible/inventory.ini
-
       - name: Run Ansible Docker installation
         working-directory: infra/ansible
         run: |
           ansible-playbook playbooks/install-docker.yml -i inventory.ini
 
-      - name: Install kubectl (K8s and VM-teardown paths)
-        if: env.DEPLOY_TARGET == 'k8s' || (env.DEPLOY_TARGET == 'vm' && vars.K8S_CLUSTER_NAME != '')
+      - name: Install kubectl (VM-teardown path)
+        if: vars.K8S_CLUSTER_NAME != ''
         run: |
           curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
-      - name: Install Yandex Cloud CLI (K8s and VM-teardown paths)
-        if: env.DEPLOY_TARGET == 'k8s' || (env.DEPLOY_TARGET == 'vm' && vars.K8S_CLUSTER_NAME != '')
+      - name: Install Yandex Cloud CLI (VM-teardown path)
+        if: vars.K8S_CLUSTER_NAME != ''
         run: |
           curl --proto "=https" -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
           echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
 
-      - name: Get kubeconfig from Yandex Cloud (K8s mode)
-        if: env.DEPLOY_TARGET == 'k8s'
-        env:
-          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
-        run: |
-          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
-          yc config set service-account-key /tmp/yc-sa-key.json
-          yc managed-kubernetes cluster get-credentials \
-            --name "${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }}" \
-            --folder-id "$YC_FOLDER_ID" \
-            --external
-
-      - name: Teardown K8s app workloads before VM deploy
-        if: env.DEPLOY_TARGET == 'vm'
-        env:
-          YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+      # Switching VM <- K8s: unmanage the cluster from GitOps FIRST,
+      # otherwise ArgoCD selfHeal restores workloads during/after teardown.
+      - name: Teardown K8s world before VM deploy
+        if: vars.K8S_CLUSTER_NAME != ''
         run: |
           set -euo pipefail
-          if [ -z "${{ vars.K8S_CLUSTER_NAME }}" ]; then
-            echo "No K8s cluster configured, skip teardown."
-            exit 0
-          fi
           ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
           if ! yc managed-kubernetes cluster get --name "${{ vars.K8S_CLUSTER_NAME }}" --folder-id "$YC_FOLDER_ID" >/dev/null 2>&1; then
@@ -288,10 +235,10 @@ jobs:
             --name "${{ vars.K8S_CLUSTER_NAME }}" \
             --folder-id "$YC_FOLDER_ID" \
             --external
+          kubectl delete -f k8s/argocd/ --ignore-not-found
           ./scripts/k8s-down.sh
 
       - name: Run Ansible Application Deployment (VM mode)
-        if: env.DEPLOY_TARGET == 'vm'
         working-directory: infra/ansible
         env:
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -299,20 +246,10 @@ jobs:
           ansible-playbook playbooks/deploy-vm.yml -i inventory.ini \
             --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=$REGISTRY_PASSWORD github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
 
-      - name: Run Ansible Database Deployment (K8s mode)
-        if: env.DEPLOY_TARGET == 'k8s'
-        working-directory: infra/ansible
-        env:
-          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ansible-playbook playbooks/deploy-k8s.yml -i inventory.ini \
-            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=$REGISTRY_PASSWORD github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} enable_argocd=${{ github.event.inputs.enable_argocd }}"
-
       # ============================================================
       # VM POST-DEPLOY
       # ============================================================
       - name: Post-deploy verification of running containers (VM mode)
-        if: env.DEPLOY_TARGET == 'vm'
         run: |
           echo "Listing active docker containers on target VM..."
           ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --format 'table {{.Names}}\t{{.Status}}'"
@@ -334,8 +271,10 @@ jobs:
           fi
 
       - name: Smoke-check gateway after VM deploy
-        if: env.DEPLOY_TARGET == 'vm'
         run: |
+          # NOTE (Sonar clear-text hotspot): plain HTTP is intentional here —
+          # these are internal actuator healthchecks, services expose no TLS
+          # endpoint. Review as Safe in SonarCloud UI.
           for i in $(seq 1 30); do
             if curl -sf "http://${{ env.VM_IP }}:8085/api/v1/analytics/status" >/dev/null; then
               echo "Gateway OK"
@@ -347,41 +286,27 @@ jobs:
           chmod +x scripts/smoke-check.sh
           ./scripts/smoke-check.sh "http://${{ env.VM_IP }}:8085" "http://${{ env.VM_IP }}:8501"
 
-      # ============================================================
-      # K8S POST-DEPLOY
-      # ============================================================
-      - name: Show K8s deployment status (K8s mode)
-        if: env.DEPLOY_TARGET == 'k8s'
+      - name: Publish deployment summary
+        if: always()
         run: |
-          kubectl get pods -n iot -o wide
-          kubectl get svc -n iot
-          kubectl get hpa -n iot
-
-      - name: Smoke-check gateway after K8s deploy
-        if: env.DEPLOY_TARGET == 'k8s'
-        run: |
-          kubectl port-forward -n iot svc/iot-data-gateway 18085:8080 > /tmp/pf-gateway.log 2>&1 &
-          echo $! > /tmp/pf-gateway.pid
-          kubectl port-forward -n iot svc/iot-dashboard-ui 18501:8080 > /tmp/pf-dashboard.log 2>&1 &
-          echo $! > /tmp/pf-dashboard.pid
-          for i in $(seq 1 30); do
-            if curl -sf "http://localhost:18085/api/v1/analytics/status" >/dev/null; then
-              echo "Gateway OK"
-              break
+          {
+            echo "## Deployment summary (VM mode)"
+            echo ""
+            echo "- Tag: \`${{ env.TAG }}\`"
+            echo "- Gateway: http://${{ env.VM_IP }}:8085"
+            echo "- Dashboard: http://${{ env.VM_IP }}:8501"
+            if [ "${{ env.ENABLE_OBSERVABILITY }}" = "true" ]; then
+              echo "- Grafana: http://${{ env.VM_IP }}:8501/grafana/"
+              echo "- Prometheus: http://${{ env.VM_IP }}:8501/prometheus/"
             fi
-            echo "Waiting for gateway (attempt $i/30)..."
-            sleep 10
-          done
-          chmod +x scripts/smoke-check.sh
-          ./scripts/smoke-check.sh "http://localhost:18085" "http://localhost:18501"
-          kill "$(cat /tmp/pf-gateway.pid)" "$(cat /tmp/pf-dashboard.pid)" || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify via Telegram (Lab 4)
         if: always()
         uses: ./.github/actions/telegram-notify
         with:
           status: ${{ job.status }}
-          workflow: CD
-          details: "target=${{ env.DEPLOY_TARGET }} action=${{ env.ACTION }} tag=${{ env.TAG }}"
+          workflow: CD VM
+          details: "action=${{ env.ACTION }} tag=${{ env.TAG }}"
           bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

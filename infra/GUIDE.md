@@ -133,8 +133,9 @@ kubectl get nodes
 ```
 
 Создаётся: кластер `iot-k8s` (K8s 1.35), нод-группа (по умолчанию 2 ноды
-2 CPU / 4 GB), SA с ролями `k8s.clusters.agent` и
-`container-registry.images.puller`.
+2 CPU / 4 GB), SA с ролями `k8s.clusters.agent`,
+`container-registry.images.puller` и `editor` (последняя шире необходимого —
+кандидат на урезание до точечных ролей).
 
 Удаление — в обратном порядке (`k8s` → `vm` → `base`):
 
@@ -202,12 +203,15 @@ ansible-playbook playbooks/deploy-k8s.yml \
 
 Плейбук поднимает MongoDB/RabbitMQ на VM (`--profile db`), создаёт
 Secret `iot-db` с endpoints БД (коммиченный `k8s/configmap.yaml` не
-мутирует), применяет workload'ы через Kustomize (`kubectl apply -k k8s/`,
-шаблон `k8s/base/`, имена/образы в `k8s/overlays/*`), пинит образы тегом
-(`kubectl set image ...:<tag>`) и ждёт Ready всех подов.
-`k8s/load-test/job.yaml` специально не применяется автоматически —
+мутирует), готовит всё, чем ArgoCD владеть не должен, и ждёт Ready всех
+подов. Workload'ы накатывает ТОЛЬКО ArgoCD из git:
+desired-теги лежат в `k8s/overlays/*` (их пишет CI/CD через `kustomize-set-image`),
+никакого `kubectl set image` — он боролся бы с selfHeal. Без ArgoCD
+(`enable_argocd=false`, режим лабы 3) — плейбук применяет локальное дерево
+напрямую (теги уже зафиксированы в git).
+`load-test/job.yaml` специально не применяется автоматически —
 только вручную после Ready. С `-e "enable_observability=true"` дополнительно
-применяет `k8s/observability/` (Prometheus, Grafana, ELK, Fluent Bit).
+синкается `k8s/observability/` (Prometheus, Grafana, ELK, Fluent Bit).
 Metrics-server в репо не вендорится: плейбук проверяет API
 `metrics.k8s.io` и падает с подсказкой (minikube:
 `minikube addons enable metrics-server`).
@@ -216,15 +220,25 @@ Metrics-server в репо не вендорится: плейбук прове�
 
 Активный бэкенд в каждый момент только один, иначе будет двойная запись.
 
-VM → K8s гасится само: `deploy-k8s.yml` поднимает `compose --profile db`
-с `--remove-orphans`, compose-контейнеры приложения при этом сносятся.
+VM → K8s гасится явно: `cd-k8s.yml` шагом `vm-down.sh` останавливает
+compose-приложения на VM (БД в `db`-профиле не трогает, волюмы целы),
+затем поднимает кластерную часть. Версия по умолчанию берётся из
+git-пина (`newTag` в оверлеях) — та же, что поедет в k8s; явный `tag`
+в форме означает осознанное расхождение версий между режимами.
 
-K8s → VM гасится само в CI: перед Ansible-деплоем `cd.yml` удаляет
-workload'ы и HPA из namespace `iot` (мониторинг, namespace и ConfigMap
-остаются) и ждёт их терминации; затем идёт smoke-чек гейтвея. Если
-кластера нет (первый VM-деплой) — шаг пропускается, это не ошибка.
-Параллельные запуски CD сериализованы (`concurrency: cd-<target>`),
+K8s → VM гасится само в CI: `cd-vm.yml` первым шагом отвязывает кластер
+от GitOps (удаляет Applications — иначе selfHeal восстановит снесённое),
+затем `k8s-down.sh` удаляет workload'ы и HPA из namespace `iot`
+(мониторинг, namespace и ConfigMap остаются) и ждёт их терминации;
+затем идёт smoke-чек гейтвея. Если кластера нет (первый VM-деплой) —
+шаг пропускается, это не ошибка.
+Параллельные запуски CD сериализованы (`concurrency: cd-vm/cd-k8s`),
 т.к. S3-бэкенд без локинга.
+
+> При переезде сбрасываются Prometheus (хранилище `emptyDir`) и история
+> HPA — графики начинаются с нуля. Для лаб это нормально (отрастают за
+> минуты, алерты и дашборды целы), для прода лечится внешним хранилищем
+> метрик (remote-write в Thanos/Cortex/Mimir или Managed Prometheus).
 
 Вручную перед ручным `deploy-vm.yml`:
 
@@ -234,7 +248,7 @@ workload'ы и HPA из namespace `iot` (мониторинг, namespace и Conf
 
 ## CI/CD
 
-Связь outputs Terraform → переменные `cd.yml`:
+Связь outputs Terraform → переменные CD (`cd-vm.yml` / `cd-k8s.yml` / `cd-destroy.yml`):
 
 | Terraform output | GitHub var |
 |---|---|
@@ -242,5 +256,20 @@ workload'ы и HPA из namespace `iot` (мониторинг, namespace и Conf
 | `terraform output -raw vm_internal_ip` | `VM_INTERNAL_IP` |
 | `terraform output -raw k8s_cluster_name` | `K8S_CLUSTER_NAME` |
 
-Workflows: `ci.yml` — build/test/push образов в GHCR;
-`cd.yml` — деплой через Ansible/kubectl по `workflow_dispatch`.
+Workflows: `ci.yml` — build/test/push образов в GHCR + bot-коммит тегов
+в `k8s/overlays/*` (`pin-images`, `[skip ci]`);
+`cd-vm.yml` / `cd-k8s.yml` — деплой по `workflow_dispatch`
+(VM: compose с rollback через `.previous_version`;
+K8s: ArgoCD-only синк из git, откат — повторный запуск со старым
+тегом или `git revert` коммита тегов);
+`cd-destroy.yml` — снос `vm`/`k8s` по подтверждению `DESTROY`
+(для VM сначала обязательный бэкап Mongo в S3; сеть `base` не трогается).
+
+## Остановка и снос
+
+- Пауза k8s-мира: `./scripts/k8s-down.sh` (сначала отвязывает ArgoCD
+Applications, затем сносит деплойменты/HPA/Secret; идемпотентен).
+- Пауза VM-мира (волюмы с данными целы): `VM_IP=<ip> ./scripts/vm-down.sh`.
+- Полный снос: workflow `cd-destroy.yml`, target `vm` или `k8s`,
+подтверждение строкой `DESTROY`. Порядок при зачистке всего —
+сначала `k8s`, потом `vm` (иначе кластер останется без БД).

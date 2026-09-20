@@ -14,7 +14,7 @@ docker compose --profile core ps
 
 ### Core + Observability (ELK + Prometheus + Grafana)
 ```bash
-SPRING_PROFILES="docker,elk" docker compose --profile core --profile observability up -d --build
+docker compose --profile core --profile observability up -d --build
 docker compose --profile core --profile observability ps
 ```
 
@@ -48,6 +48,10 @@ docker compose down -v
 - Prometheus (observability): `http://localhost:9090`
 - Grafana (observability): `http://localhost:3000`
 - Kibana (observability): `http://localhost:5601`
+
+> Дашборды/датасорсы Grafana существуют в двух местах: `monitoring/grafana/`
+> (compose на VM) и `k8s/observability/grafana/` (K8s). Правим в `k8s/`,
+> в compose зеркалим вручную.
 
 ## 3. RabbitMQ: как смотреть очереди
 
@@ -140,6 +144,12 @@ curl -s -X POST http://localhost:8085/api/v1/controller \
 
 ## 8. Kubernetes (minikube под Windows, управление из WSL)
 
+> K8s-манифесты — Kustomize в `k8s/` (root, `base/`, 6 оверлеев,
+> `observability/`), ArgoCD синкает кластер оттуда. В `k8s/argocd/` —
+> bootstrap Applications. Теги образов пишет автоматика
+> (`kustomize-set-image`: CI `pin-images`, `cd-k8s`),
+> руками `newTag` не трогаем.
+
 Minikube стартует на Windows (`minikube start`), дальше всё из WSL.
 Kubeconfig достать из контейнера minikube и подменить сервер на
 проброшенный порт (узнать через `docker ps`, `127.0.0.1:<port>->8443`):
@@ -169,13 +179,14 @@ MINIKUBE=1 ./scripts/update-k8s-ips.sh
 
 Ворклоады — Kustomize (`k8s/base/` — единый шаблон деплоймента,
 сервиса и HPA; `k8s/overlays/*` — имена/образы/патчи на сервис).
-Деплой (порядок важен, `k8s/load-test/` применяется только вручную):
+Ручной деплой из корня репо (порядок важен, `k8s/load-test/`
+применяется только вручную):
 
 ```bash
 kubectl apply -k k8s/
 kubectl -n iot create secret generic iot-db \
   --from-literal=MONGO_CONTROLLER_URI='mongodb://admin:admin@<db-host>:27017/iot_db_controller?authSource=admin' \
-  ... # или скриптом выше
+  ... # или скриптом update-k8s-ips.sh
 kubectl apply -k k8s/observability/
 kubectl get pods -n iot
 ```
@@ -216,7 +227,8 @@ kubectl get hpa -n iot -w
 `maxReplicas: 3` и лимиты `768Mi` подобраны под это; в облаке (2 ноды)
 запас больше.
 
-Снос workload'ов перед переходом обратно на VM (мониторинг, namespace
+Снос workload'ов перед переходом обратно на VM (сначала отвязывает ArgoCD
+Applications, иначе selfHeal всё восстановит; мониторинг, namespace
 и ConfigMap остаются):
 
 ```bash
@@ -246,7 +258,7 @@ curl -s http://localhost:5601/api/status -H "kbn-xsrf: true"
 
 ```bash
 ./scripts/smoke-check.sh [gateway-url] [dashboard-url]
-# Windows: powershell -ExecutionPolicy Bypass -File ./scripts/smoke-check.ps1
+# Windows: Git Bash, WSL или powershell + sh
 ```
 
 Валидирует ingest/history/alerts и ручки `live/summary`, `live/by-type`,
@@ -263,9 +275,11 @@ SonarQube (`ci.yml` jobs `sonar` + `sonar-dashboard`): нужен только �
 (`mvn verify` в `test-server`) действует всегда — CI красный при
 покрытии ниже порога.
 
-ArgoCD (K8s, opt-in): `cd.yml` → `enable_argocd=true` ставит ArgoCD core
+ArgoCD (K8s): `cd-k8s.yml` → `enable_argocd=true` ставит ArgoCD core
 и применяет `k8s/argocd/*.yaml` (GitOps Applications на этот репозиторий,
-автосинк prune+selfHeal). Прямой `kubectl apply -k` остаётся bootstrap-путём.
+автосинк prune+selfHeal). Workload'ы синкает ТОЛЬКО ArgoCD: теги образов
+пишет в `k8s/overlays/*` CI-job `pin-images` (bot-коммит `[skip ci]`)
+и `cd-k8s` (ручной `tag`), прямого `kubectl set image` нет.
 На форке поменять `spec.source.repoURL` в Applications.
 
 Telegram-бот: создать бота через `@BotFather`, задать secrets
@@ -289,6 +303,6 @@ from repo .env`) и `scripts/update-k8s-ips.sh` (`ENV_FILE`, явные env
 достаточно заменить один источник — задачу чтения `.env` в плейбуке
 и `ENV_FILE` в скрипте — потребители (`dot.*` факты, Secret'ы) не меняются.
 
-## 11. Инфраструктура (Terraform + Ansible)
+## 13. Инфраструктура (Terraform + Ansible)
 
 Общий гайд: [`infra/GUIDE.md`](infra/GUIDE.md) — всё тоже запускается из WSL.

@@ -1,6 +1,6 @@
 # Composite: Buildx + GHCR login + lowercased owner env.
 # Replaces triplicated setup-buildx + docker/login + OWNER_LC blocks
-# in ci.yml (build-and-push, tag-unchanged-images) and cd.yml.
+# in ci.yml (build-and-push, tag-unchanged-images) and cd-k8s.yml.
 # Token comes as input (composite steps cannot read the `secrets`
 # context — callers pass the GitHub token via `with:`).
 # OWNER_LC is exported via $GITHUB_ENV for later steps in the same job.

@@ -91,6 +91,8 @@ for d in prometheus grafana elasticsearch logstash kibana fluentbit; do
   [ -d "k8s/observability/$d" ] || fail "missing: k8s/observability/$d"
 done
 [ -e k8s/load-test/job.yaml ] || fail "missing: k8s/load-test/job.yaml"
+[ -e k8s/argocd/iot-app.yaml ] || fail "missing: k8s/argocd/iot-app.yaml"
+[ -e k8s/argocd/iot-observability.yaml ] || fail "missing: k8s/argocd/iot-observability.yaml"
 if [ -e k8s/metrics-server ]; then
   fail "k8s/metrics-server must not exist (use cluster metrics-server + preflight check, see GUIDE)"
 fi

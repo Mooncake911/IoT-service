@@ -22,6 +22,15 @@ kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || {
   exit 0
 }
 
+# Unmanage the cluster from GitOps FIRST — otherwise ArgoCD selfHeal
+# restores workloads while/after this script deletes them.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARGOCD_DIR="${ARGOCD_DIR:-$SCRIPT_DIR/../k8s/argocd}"
+if [ -d "$ARGOCD_DIR" ]; then
+  kubectl delete -f "$ARGOCD_DIR" --ignore-not-found
+  echo "ArgoCD Applications unmanaged."
+fi
+
 TARGETS=""
 for d in $DEPLOYS; do
   TARGETS="$TARGETS deploy/$d"

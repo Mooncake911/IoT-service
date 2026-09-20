@@ -509,6 +509,31 @@ jobs:
             -t ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:${{ github.sha }} \
             ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:latest
   # ========================================================================
+  #  PIN K8S IMAGES (GitOps: bot-commit tags so ArgoCD syncs them)
+  # ========================================================================
+
+  pin-images:
+    name: Pin K8s Images
+    needs:
+      - changes
+      - build-and-push
+      - tag-unchanged-images
+    if: ${{ always() && github.event_name == 'push' && needs.build-and-push.result == 'success' && (needs.tag-unchanged-images.result == 'success' || needs.tag-unchanged-images.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Pin overlay tags to this commit
+        uses: ./.github/actions/kustomize-set-image
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.sha }}
+          owner: ${{ github.repository_owner }}
+
+  # ========================================================================
   #  TELEGRAM NOTIFICATION (Lab 4: pipeline status bot)
   # ========================================================================
 
@@ -524,6 +549,7 @@ jobs:
       - sonar-dashboard
       - build-and-push
       - tag-unchanged-images
+      - pin-images
     if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions:
@@ -535,7 +561,7 @@ jobs:
       - name: Send status to Telegram
         uses: ./.github/actions/telegram-notify
         with:
-          status: ${{ (needs.build-server.result == 'failure' || needs.test-server.result == 'failure' || needs.sonar.result == 'failure' || needs.build-client.result == 'failure' || needs.test-client.result == 'failure' || needs.sonar-dashboard.result == 'failure' || needs.build-and-push.result == 'failure' || needs.tag-unchanged-images.result == 'failure') && 'failure' || 'success' }}
+          status: ${{ (needs.build-server.result == 'failure' || needs.test-server.result == 'failure' || needs.sonar.result == 'failure' || needs.build-client.result == 'failure' || needs.test-client.result == 'failure' || needs.sonar-dashboard.result == 'failure' || needs.build-and-push.result == 'failure' || needs.tag-unchanged-images.result == 'failure' || needs.pin-images.result == 'failure') && 'failure' || 'success' }}
           workflow: CI
           details: "event=${{ github.event_name }} ref=${{ github.ref_name }}"
           bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}

@@ -1,0 +1,66 @@
+# Composite: pin GHCR image tags in k8s overlays and push a bot commit.
+# Used by CI (auto-pin after image build) and cd-k8s (manual tag deploy).
+# Single writer of image tags in git — ArgoCD syncs everything else.
+# The commit message contains [skip ci] so the push never retriggers CI.
+name: kustomize-set-image
+description: Pin K8s overlay image tags to a release and push [skip ci] commit
+
+inputs:
+  token:
+    description: GitHub token with contents write (pass secrets.GITHUB_TOKEN)
+    required: true
+  tag:
+    description: Image tag to pin in all overlays (e.g. commit SHA)
+    required: true
+  owner:
+    description: Repository owner for ghcr.io namespace (any case)
+    required: true
+  ref:
+    description: Branch to check out and push the pin commit to
+    required: false
+    default: master
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout target branch
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.ref }}
+        token: ${{ inputs.token }}
+        fetch-depth: 0
+
+    - name: Pin overlay images and push
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+        OWNER: ${{ inputs.owner }}
+        REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        OWNER_LC="${OWNER,,}"
+        for pair in iot-controller:controller iot-analytics:analytics iot-alerts:alerts iot-data-gateway:data-gateway iot-data-simulator:data-simulator iot-dashboard-ui:dashboard; do
+          svc="${pair%%:*}"
+          dir="${pair##*:}"
+          f="k8s/overlays/${dir}/kustomization.yaml"
+          sed -i -E "s|(newName: ghcr.io/)[^/]+(/iot-service/${svc})$|\1${OWNER_LC}\2|" "$f"
+          sed -i -E "s|^([[:space:]]*newTag: ).*|\1${TAG}|" "$f"
+        done
+        # Verify: all 6 overlays carry exactly the requested tag and owner.
+        mapfile -t tags < <(grep -rhE "^[[:space:]]*newTag: " k8s/overlays/*/kustomization.yaml | sort -u)
+        if [ "${#tags[@]}" -ne 1 ] || [ "${tags[0]}" != "    newTag: ${TAG}" ]; then
+          echo "newTag verification failed:"; printf '  %s\n' "${tags[@]}"; exit 1
+        fi
+        mismatched="$(grep -rh "newName:" k8s/overlays/*/kustomization.yaml | grep -vc "ghcr.io/${OWNER_LC}/" || true)"
+        if [ "$mismatched" -ne 0 ]; then
+          echo "newName owner verification failed (${mismatched} lines)"; exit 1
+        fi
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add k8s/overlays
+        if git diff --cached --quiet; then
+          echo "Images already pinned to ${TAG}, nothing to commit."
+        else
+          git commit -m "[skip ci] Pin K8s images to ${TAG}"
+          git push origin "HEAD:${REF}"
+        fi

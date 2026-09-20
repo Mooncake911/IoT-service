@@ -1,0 +1,24 @@
+# Standalone MongoDB backup play — used by cd-destroy.yml before VM wipe.
+# Reuses backup-tasks.yml (same tasks as deploy-vm.yml section 5).
+- name: Backup IoT MongoDB to Object Storage
+  hosts: iot_vm
+  become: false
+
+  vars:
+    backup_bucket_name: ""
+    backup_storage_access_key: ""
+    backup_storage_secret_key: ""
+
+  tasks:
+    - name: Check if .env exists
+      ansible.builtin.stat:
+        path: "{{ deploy_dir }}/.env"
+      register: env_file
+
+    - name: Warn if nothing to back up
+      ansible.builtin.debug:
+        msg: "No {{ deploy_dir }}/.env on the VM — nothing is deployed, skipping backup."
+      when: not env_file.stat.exists
+
+    - include_tasks: backup-tasks.yml
+      when: env_file.stat.exists

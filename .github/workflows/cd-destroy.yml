@@ -1,0 +1,198 @@
+name: CD Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "What to destroy (vm workloads+VM, or k8s workloads+cluster; never base network)"
+        required: true
+        default: "vm"
+        type: choice
+        options:
+          - vm
+          - k8s
+      confirm:
+        description: 'Type DESTROY in capitals to confirm irreversible deletion'
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-destroy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Destroy infrastructure
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # All cloud credentials enter scripts via environment (never inline
+    # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
+    env:
+      YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+      YC_STORAGE_ACCESS_KEY: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+      YC_STORAGE_SECRET_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+      YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.5"
+
+      - name: Confirm destruction
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DESTROY" ]; then
+            echo "Refusing to destroy: type DESTROY in the confirm input."
+            exit 1
+          fi
+          echo "Destruction of ${{ github.event.inputs.target }} confirmed."
+          echo "NOTE: destroying the VM first orphans the k8s cluster DB backend — always destroy k8s before vm when wiping everything."
+
+      # ============================================================
+      # VM TARGET: backup -> stop workloads -> destroy VM
+      # (data volumes die with the VM; the S3 backup is mandatory)
+      # ============================================================
+      - name: Determine VM IP
+        if: github.event.inputs.target == 'vm'
+        run: |
+          if [ -n "${{ vars.VM_IP }}" ]; then
+            echo "VM_IP=${{ vars.VM_IP }}" >> "$GITHUB_ENV"
+          else
+            cd infra/terraform/vm
+            terraform init -input=false \
+              -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+              -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
+            echo "VM_IP=$(terraform output -raw vm_public_ip)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up SSH and inventory
+        if: github.event.inputs.target == 'vm'
+        uses: ./.github/actions/setup-ssh-vm
+        with:
+          vm-ip: ${{ env.VM_IP }}
+          ssh-user: ubuntu
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Install Ansible
+        if: github.event.inputs.target == 'vm'
+        run: |
+          pipx install ansible-core
+          pipx inject ansible-core ansible-compat
+          ansible-galaxy collection install community.docker
+
+      - name: Get Backup Storage Details from Terraform
+        if: github.event.inputs.target == 'vm'
+        run: |
+          if [ ! -d "infra/terraform/vm/.terraform" ]; then
+            cd infra/terraform/vm
+            terraform init -input=false \
+              -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+              -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
+            cd ../../..
+          fi
+          BACKUP_BUCKET=$(cd infra/terraform/vm && terraform output -raw backup_bucket_name 2>/dev/null || echo "")
+          BACKUP_ACCESS_KEY=$(cd infra/terraform/vm && terraform output -raw backup_storage_access_key 2>/dev/null || echo "")
+          BACKUP_SECRET_KEY=$(cd infra/terraform/vm && terraform output -raw backup_storage_secret_key 2>/dev/null || echo "")
+
+          if [ -z "$BACKUP_BUCKET" ]; then
+            echo "No backup bucket in state — nothing to back up to, aborting destroy for safety."
+            exit 1
+          fi
+          if [ -n "$BACKUP_SECRET_KEY" ]; then
+            echo "::add-mask::$BACKUP_SECRET_KEY"
+          fi
+          if [ -n "$BACKUP_ACCESS_KEY" ]; then
+            echo "::add-mask::$BACKUP_ACCESS_KEY"
+          fi
+
+          {
+            echo "BACKUP_BUCKET=$BACKUP_BUCKET"
+            echo "BACKUP_ACCESS_KEY=$BACKUP_ACCESS_KEY"
+            echo "BACKUP_SECRET_KEY=$BACKUP_SECRET_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Pre-destroy MongoDB backup (vm)
+        if: github.event.inputs.target == 'vm'
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook playbooks/backup.yml -i inventory.ini \
+            --extra-vars "backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
+
+      - name: Stop VM workloads (vm)
+        if: github.event.inputs.target == 'vm'
+        run: ./scripts/vm-down.sh
+
+      - name: Run Terraform Destroy (vm)
+        if: github.event.inputs.target == 'vm'
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: vm
+          operation: destroy
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          ssh-public-key: ${{ secrets.SSH_PUBLIC_KEY }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+
+      # ============================================================
+      # K8S TARGET: unmanage workloads -> destroy cluster
+      # ============================================================
+      - name: Install kubectl (k8s)
+        if: github.event.inputs.target == 'k8s'
+        run: |
+          curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Install Yandex Cloud CLI (k8s)
+        if: github.event.inputs.target == 'k8s'
+        run: |
+          curl --proto "=https" -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+
+      - name: Teardown K8s workloads (k8s)
+        if: github.event.inputs.target == 'k8s'
+        run: |
+          set -euo pipefail
+          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
+          yc config set service-account-key /tmp/yc-sa-key.json
+          if [ -n "${{ vars.K8S_CLUSTER_NAME }}" ]; then
+            yc managed-kubernetes cluster get-credentials \
+              --name "${{ vars.K8S_CLUSTER_NAME }}" \
+              --folder-id "$YC_FOLDER_ID" \
+              --external || echo "No kubeconfig, k8s-down will skip gracefully."
+          fi
+          ./scripts/k8s-down.sh
+
+      - name: Run Terraform Destroy (k8s cluster)
+        if: github.event.inputs.target == 'k8s'
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: k8s
+          operation: destroy
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+
+      - name: Notify via Telegram (Lab 4)
+        if: always()
+        uses: ./.github/actions/telegram-notify
+        with:
+          status: ${{ job.status }}
+          workflow: CD Destroy
+          details: "target=${{ github.event.inputs.target }}"
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

@@ -324,9 +324,11 @@ Compose-поток:
 
 - `/actuator/prometheus`
 
-Prometheus собирает метрики по HTTP, Grafana визуализирует их.
-
-Важно: текущий `monitoring/prometheus/prometheus.yml` уже содержит scrape для `iot-controller` и `iot-analytics`, но в нём всё ещё есть устаревшая цель `iot-rule-engine`, которой в текущей системе нет. Документация здесь описывает фактическую архитектуру, а не старое имя сервиса.
+Prometheus собирает метрики по HTTP, Grafana визуализирует их. Scrape-цели
+заданы в `monitoring/prometheus/prometheus.yml` (compose) и в
+`k8s/observability/prometheus/configmap.yaml` (Kubernetes, discovery
+по аннотациям `prometheus.io/scrape` + отдельный file_sd-job для
+внешнего RabbitMQ).
 
 ## Реальные URL и порты в Docker Compose
 
@@ -399,8 +401,8 @@ docker compose --profile core ps
 
 Smoke-check всего потока:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\smoke-check.ps1
+```bash
+./scripts/smoke-check.sh [gateway-url] [dashboard-url]
 ```
 
 Скрипт:

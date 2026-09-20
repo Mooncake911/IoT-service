@@ -1,0 +1,276 @@
+name: CD K8s
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (leave empty to use commit SHA)"
+        required: false
+        default: ""
+      run_terraform:
+        description: "Run Terraform apply before deploy?"
+        required: true
+        default: false
+        type: boolean
+      enable_observability:
+        description: "Deploy observability stack (ELK + Prometheus + Grafana)?"
+        required: true
+        default: false
+        type: boolean
+      enable_argocd:
+        description: "Install ArgoCD and hand sync to GitOps Applications?"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cd-k8s
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Managed Kubernetes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    # All cloud credentials enter scripts via environment (never inline
+    # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
+    env:
+      YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+      YC_STORAGE_ACCESS_KEY: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+      YC_STORAGE_SECRET_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+      YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Parse inputs & set environment
+        run: |
+          {
+            TAG_INPUT="${{ github.event.inputs.tag }}"
+            if [ -z "$TAG_INPUT" ]; then
+              TAG_INPUT="${{ github.sha }}"
+            fi
+            echo "TAG=$TAG_INPUT"
+            echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}"
+            echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}"
+            echo "ENABLE_ARGOCD=${{ github.event.inputs.enable_argocd }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup Terraform
+        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.5"
+
+      - name: Save Yandex Service Account Key
+        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
+        run: |
+          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
+          echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> "$GITHUB_ENV"
+
+      - name: Run Terraform Apply (base)
+        if: ${{ env.RUN_TERRAFORM == 'true' }}
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: base
+          operation: apply
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+
+      - name: Run Terraform Apply (vm)
+        if: ${{ env.RUN_TERRAFORM == 'true' }}
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: vm
+          operation: apply
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          ssh-public-key: ${{ secrets.SSH_PUBLIC_KEY }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+
+      - name: Run Terraform Apply (k8s)
+        if: ${{ env.RUN_TERRAFORM == 'true' }}
+        uses: ./.github/actions/terraform-stack
+        with:
+          stack: k8s
+          operation: apply
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
+          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+
+      - name: Determine VM IP
+        id: get-ip
+        run: |
+          if [ -n "${{ vars.VM_IP }}" ]; then
+            echo "VM_IP=${{ vars.VM_IP }}" >> "$GITHUB_ENV"
+            echo "VM_INTERNAL_IP=${{ vars.VM_INTERNAL_IP }}" >> "$GITHUB_ENV"
+          else
+            cd infra/terraform/vm
+            if [ ! -d ".terraform" ]; then
+              terraform init -input=false \
+                -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+                -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
+            fi
+            IP=$(terraform output -raw vm_public_ip)
+            echo "VM_IP=$IP" >> "$GITHUB_ENV"
+            INTERNAL=$(terraform output -raw vm_internal_ip 2>/dev/null || echo "10.10.0.100")
+            echo "VM_INTERNAL_IP=$INTERNAL" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up SSH and inventory
+        uses: ./.github/actions/setup-ssh-vm
+        with:
+          vm-ip: ${{ env.VM_IP }}
+          ssh-user: ubuntu
+          ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Install Ansible
+        run: |
+          pipx install ansible-core
+          pipx inject ansible-core ansible-compat
+          ansible-galaxy collection install community.docker
+
+      - name: Log in to GHCR for image checks
+        uses: ./.github/actions/docker-login-ghcr
+        with:
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure container images exist for deploy tag
+        run: |
+          set -euo pipefail
+          OWNER_LC="${OWNER,,}"
+          TAG="${{ env.TAG }}"
+          services=(iot-controller iot-analytics iot-alerts iot-data-gateway iot-data-simulator iot-dashboard-ui iot-rabbitmq)
+
+          for svc in "${services[@]}"; do
+            image="ghcr.io/${OWNER_LC}/iot-service/${svc}"
+            if docker buildx imagetools inspect "${image}:${TAG}" >/dev/null 2>&1; then
+              echo "Image ${image}:${TAG} already exists"
+              continue
+            fi
+            echo "Tag ${TAG} missing for ${svc}, retagging from latest..."
+            docker buildx imagetools create -t "${image}:${TAG}" "${image}:latest"
+          done
+        env:
+          OWNER: ${{ github.repository_owner }}
+
+      - name: Run Ansible Docker installation
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook playbooks/install-docker.yml -i inventory.ini
+
+      - name: Install kubectl
+        run: |
+          curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Install Yandex Cloud CLI
+        run: |
+          curl --proto "=https" -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+
+      - name: Get kubeconfig from Yandex Cloud
+        run: |
+          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
+          yc config set service-account-key /tmp/yc-sa-key.json
+          yc managed-kubernetes cluster get-credentials \
+            --name "${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }}" \
+            --folder-id "$YC_FOLDER_ID" \
+            --external
+
+      # GitOps: the tag becomes desired state in git FIRST, ArgoCD (or the
+      # initial kubectl sync below when ArgoCD is off) converges the cluster.
+      - name: Pin image tags in git
+        uses: ./.github/actions/kustomize-set-image
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ env.TAG }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Run Ansible Kubernetes Deployment
+        working-directory: infra/ansible
+        env:
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ansible-playbook playbooks/deploy-k8s.yml -i inventory.ini \
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=$REGISTRY_PASSWORD github_owner=${{ github.repository_owner }} deploy_action=deploy vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} enable_argocd=${{ env.ENABLE_ARGOCD }}"
+
+      # ============================================================
+      # K8S POST-DEPLOY
+      # ============================================================
+      - name: Show K8s deployment status
+        run: |
+          kubectl get pods -n iot -o wide
+          kubectl get svc -n iot
+          kubectl get hpa -n iot
+
+      - name: Smoke-check gateway after K8s deploy
+        run: |
+          kubectl port-forward -n iot svc/iot-data-gateway 18085:8080 > /tmp/pf-gateway.log 2>&1 &
+          echo $! > /tmp/pf-gateway.pid
+          kubectl port-forward -n iot svc/iot-dashboard-ui 18501:8080 > /tmp/pf-dashboard.log 2>&1 &
+          echo $! > /tmp/pf-dashboard.pid
+          for i in $(seq 1 30); do
+            if curl -sf "http://localhost:18085/api/v1/analytics/status" >/dev/null; then
+              echo "Gateway OK"
+              break
+            fi
+            echo "Waiting for gateway (attempt $i/30)..."
+            sleep 10
+          done
+          chmod +x scripts/smoke-check.sh
+          ./scripts/smoke-check.sh "http://localhost:18085" "http://localhost:18501"
+          kill "$(cat /tmp/pf-gateway.pid)" "$(cat /tmp/pf-dashboard.pid)" || true
+
+      - name: Publish deployment summary
+        if: always()
+        run: |
+          NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || true)"
+          if [ -z "$NODE_IP" ]; then
+            NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+          fi
+          {
+            echo "## Deployment summary (K8s mode)"
+            echo ""
+            echo "- Tag: \`${{ env.TAG }}\` (from git pin)"
+            if [ -n "$NODE_IP" ]; then
+              echo "- Gateway (NodePort 30085): http://${NODE_IP}:30085"
+              echo "- Dashboard (NodePort 31080): http://${NODE_IP}:31080"
+            else
+              echo "- Node IP unknown — use port-forward:"
+              echo "  \`kubectl port-forward -n iot svc/iot-data-gateway 18085:8080\`"
+              echo "  \`kubectl port-forward -n iot svc/iot-dashboard-ui 18501:8080\`"
+            fi
+            if [ "${{ env.ENABLE_OBSERVABILITY }}" = "true" ]; then
+              echo "- Grafana/Prometheus via dashboard UI proxy (/grafana/, /prometheus/)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify via Telegram (Lab 4)
+        if: always()
+        uses: ./.github/actions/telegram-notify
+        with:
+          status: ${{ job.status }}
+          workflow: CD K8s
+          details: "tag=${{ env.TAG }}"
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

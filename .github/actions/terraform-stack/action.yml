@@ -1,0 +1,92 @@
+# Composite: terraform init + apply/destroy for one stack (base/vm/k8s).
+# Wraps backend config, provider vars and extra -var lines so cd-vm,
+# cd-k8s and cd-destroy share one implementation instead of triplicated
+# shell blocks. Assumes the caller already did actions/checkout
+# (ensure-yc-key.sh lives in the repo).
+name: terraform-stack
+description: Init and apply or destroy one Terraform stack
+
+inputs:
+  stack:
+    description: Stack directory under infra/terraform (base, vm or k8s)
+    required: true
+  operation:
+    description: apply or destroy
+    required: false
+    default: apply
+  terraform-version:
+    description: Terraform version to install
+    required: false
+    default: "1.15.5"
+  yc-sa-key-json:
+    description: Yandex service account key JSON (pass a secret)
+    required: true
+  yc-cloud-id:
+    description: Yandex Cloud ID (pass a secret)
+    required: true
+  yc-folder-id:
+    description: Yandex Cloud folder ID (pass a secret)
+    required: true
+  ssh-public-key:
+    description: Public SSH key for the VM (pass a secret, vm stack only)
+    required: false
+    default: ""
+  backend-access-key:
+    description: S3 backend access key (pass a secret)
+    required: true
+  backend-secret-key:
+    description: S3 backend secret key (pass a secret)
+    required: true
+  extra-vars:
+    description: Additional Terraform variables, one "name=value" per line
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v4
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+
+    - name: Save Yandex service account key
+      shell: bash
+      env:
+        YC_SA_KEY_JSON: ${{ inputs.yc-sa-key-json }}
+      run: ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
+
+    - name: Terraform init and apply/destroy
+      shell: bash
+      env:
+        STACK: ${{ inputs.stack }}
+        OPERATION: ${{ inputs.operation }}
+        YC_CLOUD_ID: ${{ inputs.yc-cloud-id }}
+        YC_FOLDER_ID: ${{ inputs.yc-folder-id }}
+        SSH_PUBLIC_KEY: ${{ inputs.ssh-public-key }}
+        BACKEND_ACCESS_KEY: ${{ inputs.backend-access-key }}
+        BACKEND_SECRET_KEY: ${{ inputs.backend-secret-key }}
+        EXTRA_VARS: ${{ inputs.extra-vars }}
+      run: |
+        set -euo pipefail
+        cd "infra/terraform/${STACK}"
+        terraform init -input=false \
+          -backend-config="access_key=${BACKEND_ACCESS_KEY}" \
+          -backend-config="secret_key=${BACKEND_SECRET_KEY}"
+        ARGS=(
+          "-var=yc_cloud_id=${YC_CLOUD_ID}"
+          "-var=yc_folder_id=${YC_FOLDER_ID}"
+          "-var=yc_service_account_key_file=/tmp/yc-sa-key.json"
+        )
+        if [ -n "$SSH_PUBLIC_KEY" ]; then
+          ARGS+=("-var=ssh_public_key=${SSH_PUBLIC_KEY}")
+        fi
+        while IFS='=' read -r k v; do
+          [ -z "$k" ] && continue
+          ARGS+=("-var=${k}=${v}")
+        done <<< "$EXTRA_VARS"
+        if [ "$OPERATION" = "destroy" ]; then
+          terraform destroy -auto-approve "${ARGS[@]}"
+        else
+          terraform apply -auto-approve "${ARGS[@]}"
+        fi

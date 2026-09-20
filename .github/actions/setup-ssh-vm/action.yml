@@ -1,0 +1,56 @@
+# Composite: SSH access to the VM + generated Ansible inventory.
+# Assumes the caller already did actions/checkout (update-inventory.sh
+# lives in the repo). Used by cd-vm, cd-k8s and cd-destroy.
+name: setup-ssh-vm
+description: Install VM SSH key, wait for SSH and generate Ansible inventory
+
+inputs:
+  vm-ip:
+    description: Public IP of the target VM
+    required: true
+  ssh-user:
+    description: SSH username on the VM
+    required: false
+    default: ubuntu
+  ssh-key:
+    description: Private SSH key content (pass a secret)
+    required: true
+  inventory-path:
+    description: Where to write the inventory; empty skips generation
+    required: false
+    default: infra/ansible/inventory.ini
+
+runs:
+  using: composite
+  steps:
+    - name: Install SSH private key
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.ssh
+        printf '%s' "$SSH_KEY" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+
+    - name: Wait for VM SSH connection
+      shell: bash
+      env:
+        VM_IP: ${{ inputs.vm-ip }}
+      run: |
+        set -euo pipefail
+        echo "Checking SSH connectivity to ${VM_IP}..."
+        for i in $(seq 1 30); do
+          nc -z -w5 "${VM_IP}" 22 && echo "SSH is open!" && break
+          echo "Waiting for SSH to be ready (attempt $i/30)..."
+          sleep 10
+        done
+
+    - name: Generate Ansible inventory
+      if: ${{ inputs.inventory-path != '' }}
+      shell: bash
+      env:
+        VM_IP: ${{ inputs.vm-ip }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        SSH_KEY: ~/.ssh/id_ed25519
+      run: ./scripts/update-inventory.sh "${{ inputs.inventory-path }}"

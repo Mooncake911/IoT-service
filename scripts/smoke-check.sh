@@ -29,7 +29,7 @@ assert_code "GET /api/v1/analytics/status" "$(get_code GET "$GATEWAY_URL/api/v1/
 assert_code "GET /api/v1/analytics/live/summary" "$(get_code GET "$GATEWAY_URL/api/v1/analytics/live/summary")" 200
 
 echo "Configuring analytics method..."
-code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY_URL/api/v1/analytics/config?method=Parallel&batchSize=50")
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$GATEWAY_URL/api/v1/analytics/config?method=Parallel&windowSeconds=50")
 case "$code" in
   200|201|202) echo "OK: POST /api/v1/analytics/config (HTTP $code)" ;;
   *) echo "FAIL: POST /api/v1/analytics/config — HTTP $code" >&2; exit 1 ;;

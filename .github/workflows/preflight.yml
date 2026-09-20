@@ -49,3 +49,11 @@ jobs:
 
       - name: Run preflight checks
         run: sh scripts/preflight-check.sh
+
+      - name: Lint workflows with actionlint
+        run: |
+          curl -sSL -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz"
+          mkdir -p /tmp/actionlint && tar -xzf /tmp/actionlint.tar.gz -C /tmp/actionlint
+          /tmp/actionlint/actionlint -color=false \
+            -ignore 'property "changes" is not defined in object type'

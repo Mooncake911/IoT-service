@@ -242,6 +242,9 @@ jobs:
     if: ${{ needs.changes.outputs.server == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Set up JDK with Maven cache
         uses: ./.github/actions/setup-java-maven
 
@@ -254,6 +257,11 @@ jobs:
     if: ${{ needs.changes.outputs.client == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
       - name: Set up Node.js with dependencies
         uses: ./.github/actions/setup-node-dashboard
 
@@ -271,6 +279,9 @@ jobs:
     if: ${{ needs.changes.outputs.server == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Set up JDK with Maven cache
         uses: ./.github/actions/setup-java-maven
 
@@ -293,6 +304,11 @@ jobs:
     if: ${{ needs.changes.outputs.client == 'true' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
       - name: Set up Node.js with dependencies
         uses: ./.github/actions/setup-node-dashboard
 
@@ -316,6 +332,9 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Set up JDK with Maven cache
         uses: ./.github/actions/setup-java-maven
 
@@ -364,6 +383,11 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
       - name: Set up Node.js with dependencies
         uses: ./.github/actions/setup-node-dashboard
 
@@ -421,6 +445,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Log in to GHCR
         uses: ./.github/actions/docker-login-ghcr
         with:
@@ -457,6 +484,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.retag_matrix) }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Log in to GHCR
         uses: ./.github/actions/docker-login-ghcr
         with:

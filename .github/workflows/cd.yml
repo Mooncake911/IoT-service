@@ -51,6 +51,16 @@ jobs:
   deploy:
     name: Deploy to Yandex Cloud
     runs-on: ubuntu-latest
+    # All cloud credentials enter scripts via environment (never inline
+    # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
+    env:
+      YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
+      YC_STORAGE_ACCESS_KEY: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
+      YC_STORAGE_SECRET_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+      YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+      YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+      SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
     steps:
       - name: Checkout repository
@@ -115,11 +125,11 @@ jobs:
           if [ "${{ env.DEPLOY_TARGET }}" = "k8s" ]; then
             cd ../k8s
             terraform init -input=false \
-              -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
-              -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+              -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+              -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
             terraform apply -auto-approve \
-              -var="yc_cloud_id=${{ secrets.YC_CLOUD_ID }}" \
-              -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
+              -var="yc_cloud_id=$YC_CLOUD_ID" \
+              -var="yc_folder_id=$YC_FOLDER_ID" \
               -var="yc_service_account_key_file=/tmp/yc-sa-key.json"
           fi
 
@@ -154,8 +164,8 @@ jobs:
           if [ ! -d "infra/terraform/vm/.terraform" ]; then
             cd infra/terraform/vm
             terraform init -input=false \
-              -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
-              -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+              -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+              -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
             cd ../../..
           fi
           BACKUP_BUCKET=$(cd infra/terraform/vm && terraform output -raw backup_bucket_name 2>/dev/null || echo "")

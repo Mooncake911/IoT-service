@@ -1,0 +1,44 @@
+# Composite: send pipeline status to Telegram via Bot API.
+# Silently skips when TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are not set,
+# so forks and local runs without secrets keep working.
+name: telegram-notify
+description: Send workflow status notification to Telegram
+
+inputs:
+  status:
+    description: Job status to report (success, failure, cancelled)
+    required: true
+  workflow:
+    description: Workflow name for the message title
+    required: true
+  details:
+    description: Extra details line (ref, tag, target, ...)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Send Telegram notification
+      shell: bash
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+          echo "Telegram secrets not set, skipping notification."
+          exit 0
+        fi
+        case "${{ inputs.status }}" in
+          success) ICON="✅" ;;
+          failure) ICON="❌" ;;
+          *)       ICON="⚠️" ;;
+        esac
+        TEXT="${ICON} <b>${{ inputs.workflow }}</b>: ${{ inputs.status }}
+        ${{ github.repository }} @ ${{ github.sha }}
+        ${{ inputs.details }}"
+        curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          -d "chat_id=${TELEGRAM_CHAT_ID}" \
+          -d "parse_mode=HTML" \
+          --data-urlencode "text=${TEXT}" > /dev/null
+        echo "Telegram notification sent."

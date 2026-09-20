@@ -1,0 +1,43 @@
+# iot-data-gateway: base backend, NodePort service for external access.
+resources:
+  - ../../base/backend
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-data-gateway
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-data-gateway
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: iot-data-gateway
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: iot-data-gateway
+  - target:
+      kind: Service
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-data-gateway
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-data-gateway
+      - op: replace
+        path: /spec/selector/app
+        value: iot-data-gateway
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30085
+
+images:
+  - name: iot-backend
+    newName: ghcr.io/mooncake911/iot-service/iot-data-gateway
+    newTag: latest

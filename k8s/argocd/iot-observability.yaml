@@ -1,0 +1,23 @@
+# ArgoCD Application for the observability stack (opt-in, mirrors
+# enable_observability in deploy-k8s.yml). Apply manually or let the
+# playbook do it when enable_observability=true + enable_argocd=true.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iot-observability
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/mooncake911/IoT-service.git
+    targetRevision: HEAD
+    path: k8s/observability
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

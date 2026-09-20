@@ -1,0 +1,42 @@
+# iot-data-simulator: base backend + CONTROLLER_URL env.
+resources:
+  - ../../base/backend
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-data-simulator
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-data-simulator
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: iot-data-simulator
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: iot-data-simulator
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: CONTROLLER_URL
+            value: http://iot-controller:8080/api/ingest
+  - target:
+      kind: Service
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-data-simulator
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-data-simulator
+      - op: replace
+        path: /spec/selector/app
+        value: iot-data-simulator
+
+images:
+  - name: iot-backend
+    newName: ghcr.io/mooncake911/iot-service/iot-data-simulator
+    newTag: latest

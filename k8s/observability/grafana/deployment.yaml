@@ -17,15 +17,32 @@ spec:
     spec:
       containers:
         - name: grafana
+          # Keep in sync with GRAFANA_VERSION in .env (compose) — single version policy
           image: grafana/grafana:10.2.0
           ports:
             - containerPort: 3000
               name: http
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: admin
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: admin-user
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: admin
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: admin-password
+            # Subpath for edge reverse-proxy via dashboard UI (<ui>/grafana/)
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana/"
+            # Read-only anonymous access for lab demo; disable in real prod (use SSO/OAuth)
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: Viewer
           livenessProbe:
             httpGet:
               path: /api/health
@@ -41,6 +58,10 @@ spec:
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /etc/grafana/dashboards
           resources:
             requests:
               memory: "128Mi"
@@ -52,3 +73,15 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboards-provider
+          configMap:
+            name: grafana-dashboards
+            items:
+              - key: iot-dashboards.yml
+                path: iot-dashboards.yml
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+            items:
+              - key: iot-microservices.json
+                path: iot-microservices.json

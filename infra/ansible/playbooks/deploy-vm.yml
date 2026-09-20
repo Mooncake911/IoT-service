@@ -3,13 +3,8 @@
   become: false
 
   vars:
-    deploy_dir: /home/ubuntu/iot-service
-    github_owner: ""
-    registry_username: ""
-    registry_password: ""
-    app_version: "latest"
-    deploy_action: "deploy"
-    enable_observability: false
+    # Shared defaults (deploy_dir, versions, registry, flags) live in
+    # group_vars/all.yml — only VM-specific backup settings stay here.
     backup_bucket_name: ""
     backup_storage_access_key: ""
     backup_storage_secret_key: ""

@@ -1,0 +1,71 @@
+# iot-dashboard-ui: nginx, not Spring — lighter probes/resources, no metrics scrape.
+resources:
+  - ../../base/backend
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-dashboard-ui
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-dashboard-ui
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: iot-dashboard-ui
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: iot-dashboard-ui
+      - op: replace
+        path: /spec/template/metadata/annotations/prometheus.io~1scrape
+        value: "false"
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe
+        value:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+  - target:
+      kind: Service
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-dashboard-ui
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-dashboard-ui
+      - op: replace
+        path: /spec/selector/app
+        value: iot-dashboard-ui
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 31080
+
+images:
+  - name: iot-backend
+    newName: ghcr.io/mooncake911/iot-service/iot-dashboard-ui
+    newTag: latest

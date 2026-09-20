@@ -317,7 +317,7 @@ public class DeviceGenerator {
         // Fluctuate signal strength +/- 5
         if (isOnline) {
             int change = random.nextInt(11) - 5;
-            signalStrength = Math.clamp(signalStrength + change, 0, 100);
+            signalStrength = Math.toIntExact(Math.clamp((long) signalStrength + change, 0, 100));
         }
 
         // Update heartbeat
@@ -332,8 +332,8 @@ public class DeviceGenerator {
             Location loc = updated.location();
             int dx = random.nextInt(3) - 1; // -1, 0, 1
             int dy = random.nextInt(3) - 1;
-            int newX = Math.clamp(loc.x() + dx, 0, 50);
-            int newY = Math.clamp(loc.y() + dy, 0, 50);
+            int newX = Math.toIntExact(Math.clamp((long) loc.x() + dx, 0, 50));
+            int newY = Math.toIntExact(Math.clamp((long) loc.y() + dy, 0, 50));
             updated = updated.toBuilder().location(new Location(newX, newY, loc.z())).build();
         }
         return updated;

@@ -34,3 +34,13 @@ data:
       - job_name: 'prometheus'
         static_configs:
           - targets: ['localhost:9090']
+
+      # External RabbitMQ (runs on the DB VM, outside the cluster).
+      # Targets come from the `prometheus-file-sd` ConfigMap, created at
+      # deploy time (deploy-k8s.yml) — no committed IPs in git.
+      - job_name: 'rabbitmq'
+        metrics_path: '/metrics'
+        file_sd_configs:
+          - files:
+              - '/etc/prometheus/file_sd/*.json'
+            refresh_interval: 1m

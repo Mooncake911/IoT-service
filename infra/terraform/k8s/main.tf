@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 0.13"
+  required_version = ">= 1.5"
 
   required_providers {
     yandex = {
@@ -84,7 +84,7 @@ resource "yandex_vpc_security_group" "k8s_node_sg" {
     description    = "Allow HTTPS from internet for Ingress"
     protocol       = "TCP"
     port           = 443
-    v4_cidr_blocks = var.allowed_cidrs
+    v4_cidr_blocks = var.allowed_public_cidrs
   }
 
   egress {

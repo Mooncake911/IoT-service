@@ -3,11 +3,34 @@
 x-base-service: &base-service
   networks:
     - iot-network
+  stop_grace_period: 30s
   logging:
     driver: json-file
     options:
       max-size: "10m"
       max-file: "5"
+
+x-java-build: &java-build
+  context: .
+  dockerfile: Dockerfile
+
+x-spring-healthcheck: &spring-healthcheck
+  test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 30s
+
+x-mongo-healthcheck: &mongo-healthcheck
+  test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+
+x-setup: &setup
+  image: curlimages/curl:8.10.1
+  command: [ "sh", "/setup/setup.sh" ]
+  restart: on-failure
 
 x-java-env: &java-env
   JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS}
@@ -33,8 +56,7 @@ services:
     <<: *base-service
     profiles: [ "core" ]
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *java-build
       target: iot-data-gateway
       args:
         SERVICE_NAME: iot-data-gateway
@@ -48,12 +70,7 @@ services:
       ALERTS_URL: http://iot-alerts:${SPRING_INTERNAL_PORT}
       SIMULATOR_URL: http://iot-data-simulator:${SPRING_INTERNAL_PORT}
       CONTROLLER_URL: http://iot-controller:${SPRING_INTERNAL_PORT}
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    healthcheck: *spring-healthcheck
     depends_on:
       iot-controller:
         condition: service_healthy
@@ -68,25 +85,18 @@ services:
     <<: *base-service
     profiles: [ "core" ]
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *java-build
       target: iot-analytics
       args:
         SERVICE_NAME: iot-analytics
     image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-analytics:${TAG}
     container_name: iot-analytics
-    stop_grace_period: 30s
     ports:
       - "${ANALYTICS_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
       MONGO_ANALYTICS_URI: ${MONGO_ANALYTICS_URI}
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    healthcheck: *spring-healthcheck
     depends_on:
       mongodb-analytics:
         condition: service_healthy
@@ -97,25 +107,18 @@ services:
     <<: *base-service
     profiles: [ "core" ]
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *java-build
       target: iot-controller
       args:
         SERVICE_NAME: iot-controller
     image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-controller:${TAG}
     container_name: iot-controller
-    stop_grace_period: 30s
     ports:
       - "${CONTROLLER_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
       MONGO_CONTROLLER_URI: ${MONGO_CONTROLLER_URI}
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    healthcheck: *spring-healthcheck
     depends_on:
       mongodb-controller:
         condition: service_healthy
@@ -126,25 +129,18 @@ services:
     <<: *base-service
     profiles: [ "core" ]
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *java-build
       target: iot-alerts
       args:
         SERVICE_NAME: iot-alerts
     image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-alerts:${TAG}
     container_name: iot-alerts
-    stop_grace_period: 30s
     ports:
       - "${ALERTS_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env, *rabbitmq-env ]
       MONGO_ALERTS_URI: ${MONGO_ALERTS_URI}
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    healthcheck: *spring-healthcheck
     depends_on:
       mongodb-alerts:
         condition: service_healthy
@@ -155,25 +151,18 @@ services:
     <<: *base-service
     profiles: [ "core" ]
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *java-build
       target: iot-data-simulator
       args:
         SERVICE_NAME: iot-data-simulator
     image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-data-simulator:${TAG}
     container_name: iot-data-simulator
-    stop_grace_period: 30s
     ports:
       - "${SIMULATOR_PORT}:${SPRING_INTERNAL_PORT}"
     environment:
       <<: [ *java-env, *spring-env ]
       CONTROLLER_URL: http://iot-controller:${SPRING_INTERNAL_PORT}/api/ingest
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SPRING_INTERNAL_PORT}/actuator/health | grep -q UP" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+    healthcheck: *spring-healthcheck
     depends_on:
       iot-controller:
         condition: service_healthy
@@ -190,10 +179,11 @@ services:
         SPRING_INTERNAL_PORT: ${SPRING_INTERNAL_PORT}
     image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-dashboard-ui:${TAG}
     container_name: iot-dashboard-ui
-    stop_grace_period: 30s
     environment:
       SPRING_INTERNAL_PORT: ${SPRING_INTERNAL_PORT}
       GATEWAY_HOST: iot-data-gateway
+      GRAFANA_HOST: grafana
+      PROMETHEUS_HOST: prometheus
     ports:
       - "${DASHBOARD_UI_PORT}:${SPRING_INTERNAL_PORT}"
     depends_on:
@@ -207,7 +197,6 @@ services:
     profiles: [ "core", "db" ]
     image: mongo:${MONGO_VERSION}
     container_name: mongodb-controller
-    stop_grace_period: 30s
     ports:
       - "${MONGO_CONTROLLER_PORT}:27017"
     environment:
@@ -217,18 +206,13 @@ services:
     volumes:
       - mongo_controller_data:/data/db
     command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
-    healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    healthcheck: *mongo-healthcheck
 
   mongodb-analytics:
     <<: *base-service
     profiles: [ "core", "db" ]
     image: mongo:${MONGO_VERSION}
     container_name: mongodb-analytics
-    stop_grace_period: 30s
     ports:
       - "${MONGO_ANALYTICS_PORT}:27017"
     environment:
@@ -238,18 +222,13 @@ services:
     volumes:
       - mongo_analytics_data:/data/db
     command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
-    healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    healthcheck: *mongo-healthcheck
 
   mongodb-alerts:
     <<: *base-service
     profiles: [ "core", "db" ]
     image: mongo:${MONGO_VERSION}
     container_name: mongodb-alerts
-    stop_grace_period: 30s
     ports:
       - "${MONGO_ALERTS_PORT}:27017"
     environment:
@@ -259,18 +238,17 @@ services:
     volumes:
       - mongo_alerts_data:/data/db
     command: [ "--wiredTigerCacheSizeGB", "${MONGO_CACHE_SIZE}" ]
-    healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    healthcheck: *mongo-healthcheck
 
   rabbitmq:
     <<: *base-service
     profiles: [ "core", "db" ]
-    image: rabbitmq:${RABBIT_VERSION}
+    build:
+      context: ./monitoring/rabbitmq
+      args:
+        RABBITMQ_VERSION: ${RABBIT_VERSION}
+    image: ${REGISTRY}/${IMAGE_NAMESPACE}/iot-rabbitmq:${TAG}
     container_name: rabbitmq
-    stop_grace_period: 30s
     ports:
       - "${RABBIT_MQ_PORT}:${RABBIT_INTERNAL_MQ_PORT}"
       - "${RABBIT_MGMT_PORT}:${RABBIT_INTERNAL_MGMT_PORT}"
@@ -279,21 +257,12 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS}
-    volumes:
-      - ./monitoring/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-    command: |-
-      sh -c '
-        rabbitmq-plugins enable rabbitmq_web_stomp rabbitmq_prometheus
-        rabbitmq-server &
-        sleep 15
-        rabbitmqctl set_policy GlobalLazy ".*" "{\"queue-mode\":\"lazy\"}" --apply-to queues
-        wait
-      '
     healthcheck:
       test: [ "CMD", "rabbitmq-diagnostics", "-q", "check_running" ]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 30s
 
   # --- ELK STACK ---
 
@@ -311,10 +280,6 @@ services:
       - "${ES_PORT}:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
-    deploy:
-      resources:
-        limits:
-          memory: ${ES_MEM_LIMIT}
     healthcheck:
       test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q status" ]
       interval: 10s
@@ -333,10 +298,6 @@ services:
     volumes:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline:ro
       - ./elk/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
-    deploy:
-      resources:
-        limits:
-          memory: ${LS_MEM_LIMIT}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -358,10 +319,6 @@ services:
       NODE_OPTIONS: ${KIBANA_NODE_OPTIONS}
     ports:
       - "${KIBANA_PORT}:5601"
-    deploy:
-      resources:
-        limits:
-          memory: ${KIBANA_MEM_LIMIT}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -372,34 +329,32 @@ services:
       retries: 20
 
   elasticsearch-setup:
-    <<: *base-service
+    <<: [*base-service, *setup]
     profiles: [ "observability" ]
-    image: curlimages/curl:8.10.1
     container_name: elasticsearch-setup
-    command: [ "sh", "/setup/setup.sh" ]
     volumes:
       - ./elk/elasticsearch:/setup:ro
     depends_on:
       elasticsearch:
         condition: service_healthy
-    restart: on-failure
 
   kibana-setup:
-    <<: *base-service
+    <<: [*base-service, *setup]
     profiles: [ "observability" ]
-    image: curlimages/curl:8.10.1
     container_name: kibana-setup
-    command: [ "sh", "/setup/setup.sh" ]
     volumes:
       - ./elk/kibana:/setup:ro
     depends_on:
       kibana:
         condition: service_healthy
-    restart: on-failure
 
-  # --- FILEBEAT (Docker logs → Logstash, используется в K8s mode) ---
+  # --- FILEBEAT (Docker logs of the DB VM → Logstash in cluster, K8s mode only).
+  # NOT a duplicate of Fluent Bit: filebeat ships /var/lib/docker/containers
+  # from the VM host, fluent-bit (k8s/observability/fluentbit/) ships pod logs
+  # inside the cluster. Different sources, one Logstash pipeline.
 
   filebeat:
+    <<: *base-service
     profiles: [ "filebeat" ]
     image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION}
     container_name: filebeat
@@ -412,8 +367,6 @@ services:
       LOGSTASH_HOST: ${LOGSTASH_HOST:-}
     command: [ "--strict.perms=false" ]
     restart: unless-stopped
-    networks:
-      - iot-network
     logging:
       driver: json-file
       options:
@@ -435,6 +388,9 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      # Subpath for edge reverse-proxy (served as <ui>/prometheus/, not exposed directly)
+      - '--web.route-prefix=/prometheus/'
+      - '--web.external-url=/prometheus/'
 
   grafana:
     <<: *base-service
@@ -444,10 +400,17 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # Subpath for edge reverse-proxy (served as <ui>/grafana/, not exposed directly)
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      # Read-only anonymous access for lab demo; disable in real prod (use SSO/OAuth)
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     ports:
       - "${GRAFANA_PORT}:3000"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus

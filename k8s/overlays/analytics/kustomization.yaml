@@ -1,0 +1,47 @@
+# iot-analytics: base backend + HPA, only names and image differ.
+resources:
+  - ../../base/backend
+  - ../../base/hpa
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-analytics
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-analytics
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: iot-analytics
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: iot-analytics
+  - target:
+      kind: Service
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-analytics
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-analytics
+      - op: replace
+        path: /spec/selector/app
+        value: iot-analytics
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-analytics-hpa
+      - op: replace
+        path: /spec/scaleTargetRef/name
+        value: iot-analytics
+
+images:
+  - name: iot-backend
+    newName: ghcr.io/mooncake911/iot-service/iot-analytics
+    newTag: latest

@@ -1,0 +1,43 @@
+# Observability stack (opt-in). Deploy with `kubectl apply -k k8s/observability/`.
+# Image versions are centralized in the `images:` block below — single source
+# of truth for k8s (compose side reads the same versions from .env).
+resources:
+  - prometheus/configmap.yaml
+  - prometheus/rbac.yaml
+  - prometheus/deployment.yaml
+  - prometheus/service.yaml
+  - grafana/configmap.yaml
+  - grafana/dashboards-configmap.yaml
+  - grafana/admin-secret.yaml
+  - grafana/deployment.yaml
+  - grafana/service.yaml
+  - elasticsearch/service.yaml
+  - elasticsearch/statefulset.yaml
+  - elasticsearch/setup-job.yaml
+  - logstash/configmap.yaml
+  - logstash/deployment.yaml
+  - logstash/service.yaml
+  - kibana/deployment.yaml
+  - kibana/service.yaml
+  - kibana/setup-job.yaml
+  - fluentbit/configmap.yaml
+  - fluentbit/rbac.yaml
+  - fluentbit/daemonset.yaml
+
+images:
+  - name: docker.elastic.co/elasticsearch/elasticsearch
+    newTag: 8.11.0
+  - name: docker.elastic.co/logstash/logstash
+    newTag: 8.11.0
+  - name: docker.elastic.co/kibana/kibana
+    newTag: 8.11.0
+  - name: prom/prometheus
+    newTag: v2.48.0
+  - name: grafana/grafana
+    newTag: 10.2.0
+  - name: cr.fluentbit.io/fluent/fluent-bit
+    newTag: "2.2"
+  - name: busybox
+    newTag: "1.36"
+  - name: curlimages/curl
+    newTag: 8.10.1

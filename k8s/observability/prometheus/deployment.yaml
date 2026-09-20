@@ -18,6 +18,7 @@ spec:
       serviceAccountName: prometheus
       containers:
         - name: prometheus
+          # Keep in sync with PROMETHEUS_VERSION in .env (compose) — single version policy
           image: prom/prometheus:v2.48.0
           ports:
             - containerPort: 9090
@@ -25,9 +26,14 @@ spec:
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
             - '--storage.tsdb.path=/prometheus'
+            # Subpath for edge reverse-proxy via dashboard UI (<ui>/prometheus/)
+            - '--web.route-prefix=/prometheus/'
+            - '--web.external-url=/prometheus/'
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: file-sd
+              mountPath: /etc/prometheus/file_sd
             - name: data
               mountPath: /prometheus
           resources:
@@ -41,5 +47,9 @@ spec:
         - name: config
           configMap:
             name: prometheus-config
+        - name: file-sd
+          configMap:
+            name: prometheus-file-sd
+            optional: true
         - name: data
           emptyDir: {}

@@ -81,12 +81,19 @@ done
 echo "scripts check done"
 
 echo "== 6. k8s paths referenced by playbooks =="
-for p in k8s/namespace.yaml k8s/configmap.yaml k8s/hpa.yaml; do
-  [ -f "$p" ] || fail "missing: $p"
+for p in k8s/namespace.yaml k8s/configmap.yaml k8s/kustomization.yaml k8s/base/backend k8s/base/hpa; do
+  [ -e "$p" ] || fail "missing: $p"
 done
-for d in controller analytics alerts data-gateway data-simulator dashboard observability metrics-server; do
-  [ -d "k8s/$d" ] || [ -f "k8s/$d" ] || fail "missing: k8s/$d"
+for d in controller analytics alerts data-gateway data-simulator dashboard; do
+  [ -f "k8s/overlays/$d/kustomization.yaml" ] || fail "missing overlay: k8s/overlays/$d"
 done
+for d in prometheus grafana elasticsearch logstash kibana fluentbit; do
+  [ -d "k8s/observability/$d" ] || fail "missing: k8s/observability/$d"
+done
+[ -e k8s/load-test/job.yaml ] || fail "missing: k8s/load-test/job.yaml"
+if [ -e k8s/metrics-server ]; then
+  fail "k8s/metrics-server must not exist (use cluster metrics-server + preflight check, see GUIDE)"
+fi
 echo "paths check done"
 
 if [ "$FAIL" -ne 0 ]; then

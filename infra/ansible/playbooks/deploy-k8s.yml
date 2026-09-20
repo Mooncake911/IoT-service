@@ -3,13 +3,8 @@
   become: false
 
   vars:
-    deploy_dir: /home/ubuntu/iot-service
-    github_owner: ""
-    registry_username: ""
-    registry_password: ""
-    app_version: "latest"
-    deploy_action: "deploy"
-    enable_observability: false
+    # Shared defaults live in group_vars/all.yml — only K8s-mode
+    # DB settings stay here.
     vm_internal_ip: "10.10.0.100"
 
   tasks:
@@ -104,7 +99,9 @@
   vars:
     k8s_manifest_dir: "{{ playbook_dir }}/../../../k8s"
     vm_internal_ip: "10.10.0.100"
-    enable_observability: false
+    rabbitmq_prom_port: "15692"
+    # deploy_action, app_version, github_owner, enable_observability,
+    # enable_argocd come from group_vars/all.yml / --extra-vars.
 
   tasks:
     - name: Ensure kubectl is installed
@@ -118,61 +115,148 @@
         msg: "kubectl is not installed. Install it before deploying to K8s."
       when: kubectl_check.rc != 0
 
-    - name: Update ConfigMap Mongo hosts with DB VM IP
-      ansible.builtin.replace:
-        path: "{{ k8s_manifest_dir }}/configmap.yaml"
-        regexp: 'mongodb://admin:admin@[^/:]+'
-        replace: 'mongodb://admin:admin@{{ vm_internal_ip }}'
+    - name: Resolve target image version (rollback aware)
+      ansible.builtin.set_fact:
+        target_version: "{{ hostvars[groups['iot_vm'][0]]['rollback_version'] | default(app_version, true) if deploy_action == 'rollback' else app_version }}"
 
-    - name: Update RabbitMQ host in ConfigMap
-      ansible.builtin.replace:
-        path: "{{ k8s_manifest_dir }}/configmap.yaml"
-        regexp: 'RABBIT_HOST: .*'
-        replace: 'RABBIT_HOST: {{ vm_internal_ip }}'
+    # .env is the single source of truth for secrets (VM compose path reads
+    # it natively; here we load the same file for the K8s path). To migrate
+    # to a real secret manager later (Vault/ExternalSecrets/SOPS), replace
+    # only this task — everything below consumes the `dot` fact.
+    - name: Check repo .env exists
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../../.env"
+      register: repo_dotenv
 
-    - name: Apply namespace and config
+    - name: Fail if repo .env is missing
+      ansible.builtin.fail:
+        msg: "Repo .env not found at {{ playbook_dir }}/../../../.env — it is the single source of truth for secrets."
+      when: not repo_dotenv.stat.exists
+
+    - name: Load credentials from repo .env
       ansible.builtin.shell: |
-        kubectl apply -f "{{ k8s_manifest_dir }}/namespace.yaml" \
-          -f "{{ k8s_manifest_dir }}/configmap.yaml"
-      register: kubectl_base
-      changed_when: '"configured" in kubectl_base.stdout or "created" in kubectl_base.stdout'
+        set -a
+        . "{{ playbook_dir }}/../../../.env"
+        printf '{"mongo_user":"%s","mongo_pass":"%s","rabbit_user":"%s","rabbit_pass":"%s","grafana_user":"%s","grafana_pass":"%s"}' \
+          "$MONGO_USER" "$MONGO_PASS" "$RABBIT_USER" "$RABBIT_PASS" "$GRAFANA_ADMIN_USER" "$GRAFANA_ADMIN_PASSWORD"
+      args:
+        executable: /bin/bash
+      register: dotenv_json
+      changed_when: false
+      no_log: true
 
-    - name: Apply app workloads
+    - name: Set credentials fact
+      ansible.builtin.set_fact:
+        dot: "{{ dotenv_json.stdout | from_json }}"
+      no_log: true
+
+    - name: Create iot-db Secret from repo .env (never committed to git)
       ansible.builtin.shell: |
-        kubectl apply -R -f "{{ k8s_manifest_dir }}/controller" \
-          -f "{{ k8s_manifest_dir }}/analytics" \
-          -f "{{ k8s_manifest_dir }}/alerts" \
-          -f "{{ k8s_manifest_dir }}/data-gateway" \
-          -f "{{ k8s_manifest_dir }}/data-simulator" \
-          -f "{{ k8s_manifest_dir }}/dashboard" \
-          -f "{{ k8s_manifest_dir }}/hpa.yaml"
+        kubectl create namespace iot --dry-run=client -o yaml | kubectl apply -f -
+        kubectl -n iot create secret generic iot-db \
+          --from-literal=MONGO_CONTROLLER_URI='mongodb://{{ dot.mongo_user }}:{{ dot.mongo_pass }}@{{ vm_internal_ip }}:27017/iot_db_controller?authSource=admin' \
+          --from-literal=MONGO_ANALYTICS_URI='mongodb://{{ dot.mongo_user }}:{{ dot.mongo_pass }}@{{ vm_internal_ip }}:27018/iot_analytics_db?authSource=admin' \
+          --from-literal=MONGO_ALERTS_URI='mongodb://{{ dot.mongo_user }}:{{ dot.mongo_pass }}@{{ vm_internal_ip }}:27019/iot_alerts_db?authSource=admin' \
+          --from-literal=RABBIT_HOST='{{ vm_internal_ip }}' \
+          --from-literal=RABBIT_USER='{{ dot.rabbit_user }}' \
+          --from-literal=RABBIT_PASS='{{ dot.rabbit_pass }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+      register: db_secret
+      changed_when: true
+      no_log: true
+
+    - name: Create Prometheus file_sd targets for external RabbitMQ
+      ansible.builtin.shell: |
+        kubectl -n iot create configmap prometheus-file-sd \
+          --from-literal=rabbitmq.json='[{"targets":["{{ vm_internal_ip }}:{{ rabbitmq_prom_port }}"],"labels":{"app":"rabbitmq"}}]' \
+          --dry-run=client -o yaml | kubectl apply -f -
+      register: prom_sd
+      changed_when: true
+
+    - name: Apply app workloads with Kustomize
+      ansible.builtin.shell: |
+        kubectl apply -k "{{ k8s_manifest_dir }}/"
       register: kubectl_apply
       changed_when: '"configured" in kubectl_apply.stdout or "created" in kubectl_apply.stdout'
 
-    - name: Apply metrics-server
+    - name: Pin workload images to target version
       ansible.builtin.shell: |
-        kubectl apply -f "{{ k8s_manifest_dir }}/metrics-server/components.yaml"
-      register: metrics_apply
-      changed_when: '"configured" in metrics_apply.stdout or "created" in metrics_apply.stdout'
-      failed_when: false
+        kubectl -n iot set image deployment/{{ item }} app=ghcr.io/{{ github_owner | lower }}/iot-service/{{ item }}:{{ target_version }}
+      loop:
+        - iot-controller
+        - iot-analytics
+        - iot-alerts
+        - iot-data-gateway
+        - iot-data-simulator
+        - iot-dashboard-ui
+      register: set_images
+      changed_when: true
 
-    - name: Wait for metrics API (HPA dependency)
+    - name: Check metrics-server API (HPA dependency)
       ansible.builtin.shell: |
-        kubectl wait --for=condition=Available apiservice/v1beta1.metrics.k8s.io --timeout=300s
+        kubectl get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
+      register: metrics_api
       changed_when: false
       failed_when: false
-      register: metrics_api
 
-    - name: Show metrics API status
-      ansible.builtin.debug:
-        var: metrics_api.stdout_lines
+    - name: Fail if metrics-server API is not available
+      ansible.builtin.fail:
+        msg: "metrics.k8s.io API is not Available. Enable it first (minikube: `minikube addons enable metrics-server`; managed K8s: preinstalled, check `kubectl top nodes`). HPA needs it."
+      when: metrics_api.stdout != 'True'
 
     - name: Apply observability manifests
       ansible.builtin.shell: |
-        kubectl apply -R -f "{{ k8s_manifest_dir }}/observability/"
+        kubectl apply -k "{{ k8s_manifest_dir }}/observability/"
       register: observability_apply
       changed_when: '"configured" in observability_apply.stdout or "created" in observability_apply.stdout'
       when: enable_observability | bool
+
+    - name: Sync grafana-admin Secret from repo .env
+      ansible.builtin.shell: |
+        kubectl -n iot create secret generic grafana-admin \
+          --from-literal=admin-user='{{ dot.grafana_user }}' \
+          --from-literal=admin-password='{{ dot.grafana_pass }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+      register: grafana_secret
+      changed_when: true
+      no_log: true
+      when: enable_observability | bool
+
+    # ============================================================
+    # ArgoCD GitOps (Lab 4, opt-in via enable_argocd=true).
+    # Installs ArgoCD core once, then hands sync over to Applications
+    # in k8s/argocd/. Direct kubectl apply above stays as the
+    # bootstrap path; ArgoCD keeps the cluster converged afterwards.
+    # ============================================================
+    - name: Install ArgoCD core
+      ansible.builtin.shell: |
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+      register: argocd_install
+      changed_when: '"created" in argocd_install.stdout or "configured" in argocd_install.stdout'
+      when: enable_argocd | bool
+
+    - name: Wait for ArgoCD server
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=600s
+      changed_when: false
+      when: enable_argocd | bool
+
+    - name: Apply ArgoCD app Application
+      ansible.builtin.shell: |
+        kubectl apply -f "{{ k8s_manifest_dir }}/argocd/iot-app.yaml"
+      register: argocd_app
+      changed_when: '"created" in argocd_app.stdout or "configured" in argocd_app.stdout'
+      when: enable_argocd | bool
+
+    - name: Apply ArgoCD observability Application
+      ansible.builtin.shell: |
+        kubectl apply -f "{{ k8s_manifest_dir }}/argocd/iot-observability.yaml"
+      register: argocd_obs
+      changed_when: '"created" in argocd_obs.stdout or "configured" in argocd_obs.stdout'
+      when:
+        - enable_argocd | bool
+        - enable_observability | bool
 
     - name: Check observability rollout status (observability mode)
       ansible.builtin.shell: |

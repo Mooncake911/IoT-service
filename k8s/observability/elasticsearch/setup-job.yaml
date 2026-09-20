@@ -1,0 +1,45 @@
+# One-shot setup: ILM retention policy + index template for logs-*.
+# K8s port of elk/elasticsearch/setup.sh (compose runs it as a service;
+# here it is a Job so it does not linger after success).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: elasticsearch-setup
+  namespace: iot
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: setup
+          image: curlimages/curl:8.10.1
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              echo "Waiting for Elasticsearch..."
+              for i in $(seq 1 60); do
+                if curl -sf http://elasticsearch:9200/_cluster/health >/dev/null; then
+                  echo "Elasticsearch is up."
+                  break
+                fi
+                sleep 5
+              done
+              curl -sf -X PUT "http://elasticsearch:9200/_ilm/policy/logs-retention-14d" \
+                -H "Content-Type: application/json" \
+                -d '{"policy":{"phases":{"hot":{"actions":{}},"delete":{"min_age":"14d","actions":{"delete":{}}}}}}'
+              echo "ILM policy applied."
+              curl -sf -X PUT "http://elasticsearch:9200/_index_template/logs-template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["logs-*"],"template":{"settings":{"index.lifecycle.name":"logs-retention-14d"}}}'
+              echo "Index template applied."
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"

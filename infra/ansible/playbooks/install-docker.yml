@@ -5,7 +5,9 @@
 
   vars:
     docker_user: "ubuntu"
-    docker_version: ""
+    docker_arch_map:
+      x86_64: amd64
+      aarch64: arm64
 
   tasks:
     # ========================================================================
@@ -39,7 +41,7 @@
 
     - name: Add Docker repository
       ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
+        repo: "deb [arch={{ docker_arch_map[ansible_facts.architecture] | default('amd64') }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
         state: present
         filename: docker
         update_cache: yes
@@ -110,10 +112,7 @@
         dest: /etc/docker/daemon.json
         content: |
           {
-            "registry-mirrors": [
-              "https://cr.yandex/mirror",
-              "https://mirror.gcr.io"
-            ]
+            "registry-mirrors": {{ docker_registry_mirrors | to_json }}
           }
         owner: root
         group: root

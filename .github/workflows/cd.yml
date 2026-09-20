@@ -25,6 +25,11 @@ on:
         required: true
         default: false
         type: boolean
+      enable_argocd:
+        description: "Install ArgoCD and hand sync to GitOps Applications (K8s only)?"
+        required: true
+        default: false
+        type: boolean
       deploy_target:
         description: "Deploy target (vm for Docker Compose, k8s for Managed K8s)"
         required: true
@@ -187,17 +192,9 @@ jobs:
           pipx inject ansible-core ansible-compat
           ansible-galaxy collection install community.docker
 
-      - name: Set up Docker Buildx for image checks
-        if: env.ACTION == 'deploy'
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR for image checks
         if: env.ACTION == 'deploy'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        uses: ./.github/actions/docker-login-ghcr
 
       - name: Ensure container images exist for deploy tag
         if: env.ACTION == 'deploy'
@@ -205,7 +202,7 @@ jobs:
           set -euo pipefail
           OWNER_LC="${OWNER,,}"
           TAG="${{ env.TAG }}"
-          services=(iot-controller iot-analytics iot-alerts iot-data-gateway iot-data-simulator iot-dashboard-ui)
+          services=(iot-controller iot-analytics iot-alerts iot-data-gateway iot-data-simulator iot-dashboard-ui iot-rabbitmq)
 
           for svc in "${services[@]}"; do
             image="ghcr.io/${OWNER_LC}/iot-service/${svc}"
@@ -220,17 +217,9 @@ jobs:
           OWNER: ${{ github.repository_owner }}
 
       - name: Generate Ansible Inventory
-        run: |
-          cat <<EOF > infra/ansible/inventory.ini
-          [iot_vm]
-          ${{ env.VM_IP }} ansible_user=ubuntu
-
-          [iot_vm:vars]
-          ansible_ssh_private_key_file=~/.ssh/id_ed25519
-          ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes'
-          ansible_ssh_timeout=60
-          ansible_ssh_retries=5
-          EOF
+        env:
+          VM_IP: ${{ env.VM_IP }}
+        run: ./scripts/update-inventory.sh infra/ansible/inventory.ini
 
       - name: Run Ansible Docker installation
         working-directory: infra/ansible
@@ -296,7 +285,7 @@ jobs:
         working-directory: infra/ansible
         run: |
           ansible-playbook playbooks/deploy-k8s.yml -i inventory.ini \
-            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }}"
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} enable_argocd=${{ github.event.inputs.enable_argocd }}"
 
       # ============================================================
       # VM POST-DEPLOY
@@ -334,7 +323,8 @@ jobs:
             echo "Waiting for gateway (attempt $i/30)..."
             sleep 10
           done
-          curl -sf "http://${{ env.VM_IP }}:8085/api/v1/simulator/status"
+          chmod +x scripts/smoke-check.sh
+          ./scripts/smoke-check.sh "http://${{ env.VM_IP }}:8085" "http://${{ env.VM_IP }}:8501"
 
       # ============================================================
       # K8S POST-DEPLOY
@@ -345,3 +335,30 @@ jobs:
           kubectl get pods -n iot -o wide
           kubectl get svc -n iot
           kubectl get hpa -n iot
+
+      - name: Smoke-check gateway after K8s deploy
+        if: env.DEPLOY_TARGET == 'k8s'
+        run: |
+          kubectl port-forward -n iot svc/iot-data-gateway 18085:8080 > /tmp/pf-gateway.log 2>&1 &
+          echo $! > /tmp/pf-gateway.pid
+          kubectl port-forward -n iot svc/iot-dashboard-ui 18501:8080 > /tmp/pf-dashboard.log 2>&1 &
+          echo $! > /tmp/pf-dashboard.pid
+          for i in $(seq 1 30); do
+            if curl -sf "http://localhost:18085/api/v1/analytics/status" >/dev/null; then
+              echo "Gateway OK"
+              break
+            fi
+            echo "Waiting for gateway (attempt $i/30)..."
+            sleep 10
+          done
+          chmod +x scripts/smoke-check.sh
+          ./scripts/smoke-check.sh "http://localhost:18085" "http://localhost:18501"
+          kill "$(cat /tmp/pf-gateway.pid)" "$(cat /tmp/pf-dashboard.pid)" || true
+
+      - name: Notify via Telegram (Lab 4)
+        if: always()
+        uses: ./.github/actions/telegram-notify
+        with:
+          status: ${{ job.status }}
+          workflow: CD
+          details: "target=${{ env.DEPLOY_TARGET }} action=${{ env.ACTION }} tag=${{ env.TAG }}"

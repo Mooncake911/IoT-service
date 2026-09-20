@@ -13,16 +13,17 @@ data:
   SIMULATOR_URL: http://iot-data-simulator:8080
   CONTROLLER_URL: http://iot-controller:8080
 
-  MONGO_CONTROLLER_URI: mongodb://admin:admin@host.minikube.internal:27017/iot_db_controller?authSource=admin
-  MONGO_ANALYTICS_URI: mongodb://admin:admin@host.minikube.internal:27018/iot_analytics_db?authSource=admin
-  MONGO_ALERTS_URI: mongodb://admin:admin@host.minikube.internal:27019/iot_alerts_db?authSource=admin
+  # NOTE: DB endpoints and credentials live in the `iot-db` Secret
+  # (created at deploy time, see deploy-k8s.yml / update-k8s-ips.sh),
+  # not here — this file is committed to git.
 
-  RABBIT_HOST: host.minikube.internal
   RABBIT_MQ_PORT: "5672"
-  RABBIT_USER: guest
-  RABBIT_PASS: guest
 
   GATEWAY_HOST: iot-data-gateway
+
+  # Edge reverse-proxy targets for dashboard UI nginx (observability via <ui>/grafana/, <ui>/prometheus/)
+  GRAFANA_HOST: grafana
+  PROMETHEUS_HOST: prometheus
 
   JAVA_TOOL_OPTIONS: "-Xshare:off -Xmx256m -XX:MaxDirectMemorySize=128m"
   JDK_JAVA_OPTIONS: "--enable-native-access=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.misc=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"

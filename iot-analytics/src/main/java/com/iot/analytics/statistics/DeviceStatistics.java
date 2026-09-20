@@ -11,10 +11,16 @@ import java.util.stream.Collector;
 public class DeviceStatistics {
 
     public DeviceStats computeSequential(List<DeviceData> deviceData) {
+        if (deviceData == null) {
+            return DeviceStats.builder().build();
+        }
         return compute(deviceData.stream());
     }
 
     public DeviceStats computeParallel(List<DeviceData> deviceData) {
+        if (deviceData == null) {
+            return DeviceStats.builder().build();
+        }
         return compute(deviceData.parallelStream());
     }
 

@@ -1,0 +1,51 @@
+# Preflight: static checks for infra-as-code that ci.yml skips via paths-ignore.
+# Runs shell syntax, YAML parse, ansible --syntax-check and cross-file
+# consistency checks from scripts/preflight-check.sh.
+name: Preflight
+
+on:
+  push:
+    branches: ["master", "main"]
+    paths:
+      - "scripts/**"
+      - "k8s/**"
+      - "infra/**"
+      - "elk/**"
+      - "monitoring/**"
+      - "docker-compose.yml"
+      - ".env"
+      - ".github/**"
+  pull_request:
+    branches: ["master", "main"]
+    paths:
+      - "scripts/**"
+      - "k8s/**"
+      - "infra/**"
+      - "elk/**"
+      - "monitoring/**"
+      - "docker-compose.yml"
+      - ".env"
+      - ".github/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Infra static checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install check dependencies
+        run: pip install pyyaml ansible-core
+
+      - name: Run preflight checks
+        run: sh scripts/preflight-check.sh

@@ -158,25 +158,30 @@ kubectl get nodes
 docker compose --profile db up -d
 ```
 
-`k8s/configmap.yaml` по умолчанию уже указывает на
-`host.minikube.internal:27017/27018/27019` и `RABBIT_HOST:
-host.minikube.internal`. Для облачной VM переписать хост:
+`k8s/configmap.yaml` содержит только несекретный конфиг; endpoints БД
+и credentials живут в Secret `iot-db`, который создаётся на деплое
+и никогда не коммитится. Создать вручную:
 
 ```bash
 VM_INTERNAL_IP=<ip> ./scripts/update-k8s-ips.sh
 MINIKUBE=1 ./scripts/update-k8s-ips.sh
 ```
 
+Ворклоады — Kustomize (`k8s/base/` — единый шаблон деплоймента,
+сервиса и HPA; `k8s/overlays/*` — имена/образы/патчи на сервис).
 Деплой (порядок важен, `k8s/load-test/` применяется только вручную):
 
 ```bash
-kubectl apply -f k8s/namespace.yaml -f k8s/configmap.yaml
-kubectl apply -R -f k8s/controller -f k8s/analytics -f k8s/alerts \
-  -f k8s/data-gateway -f k8s/data-simulator -f k8s/dashboard -f k8s/hpa.yaml
-kubectl apply -f k8s/metrics-server/components.yaml
-kubectl apply -R -f k8s/observability/prometheus -f k8s/observability/grafana
+kubectl apply -k k8s/
+kubectl -n iot create secret generic iot-db \
+  --from-literal=MONGO_CONTROLLER_URI='mongodb://admin:admin@<db-host>:27017/iot_db_controller?authSource=admin' \
+  ... # или скриптом выше
+kubectl apply -k k8s/observability/
 kubectl get pods -n iot
 ```
+
+Metrics-server не вендорится — используется кластерный
+(minikube: `minikube addons enable metrics-server`).
 
 Доступ через port-forward (gateway NodePort `30085`, grafana NodePort `31300`):
 
@@ -191,7 +196,7 @@ Prometheus targets: `http://localhost:19090/api/v1/targets` (скрап
 по-подово через аннотации `prometheus.io/scrape`, лейблы `app`/`namespace`).
 Grafana health: `http://localhost:13000/api/health`.
 
-HPA (`k8s/hpa.yaml`): `iot-controller`, `iot-analytics`, `iot-alerts`,
+HPA (`k8s/base/hpa/hpa.yaml` via overlays): `iot-controller`, `iot-analytics`, `iot-alerts`,
 `cpu averageUtilization: 15%`, `min 1 / max 3`:
 
 ```bash
@@ -240,11 +245,47 @@ curl -s http://localhost:5601/api/status -H "kbn-xsrf: true"
 ## 10. Smoke-check
 
 ```bash
-powershell -ExecutionPolicy Bypass -File ./scripts/smoke-check.ps1
+./scripts/smoke-check.sh [gateway-url] [dashboard-url]
+# Windows: powershell -ExecutionPolicy Bypass -File ./scripts/smoke-check.ps1
 ```
 
 Валидирует ingest/history/alerts и ручки `live/summary`, `live/by-type`,
-`live/by-manufacturer`, `report/window`.
+`live/by-manufacturer`, `report/window`. CD вызывает его автоматически
+после VM- и K8s-деплоя.
+
+## 11. Лаба 4: SonarQube, ArgoCD, Telegram-бот
+
+SonarQube (`ci.yml` jobs `sonar` + `sonar-dashboard`): задать secrets репозитория
+`SONAR_TOKEN`, `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` (бэкенд) и
+`SONAR_PROJECT_KEY_DASHBOARD` (клиент). Без токена job'ы пропускаются, но JaCoCo-gate 80%
+(`mvn verify` в `test-server`) действует всегда — CI красный при
+покрытии ниже порога.
+
+ArgoCD (K8s, opt-in): `cd.yml` → `enable_argocd=true` ставит ArgoCD core
+и применяет `k8s/argocd/*.yaml` (GitOps Applications на этот репозиторий,
+автосинк prune+selfHeal). Прямой `kubectl apply -k` остаётся bootstrap-путём.
+На форке поменять `spec.source.repoURL` в Applications.
+
+Telegram-бот: создать бота через `@BotFather`, задать secrets
+`TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID`. CI шлёт итог (`notify` job),
+CD — итог деплоя. Без secrets шаги молча скипаются.
+
+## 12. Секреты: единая точка — `.env`
+
+Все креды (`MONGO_USER/PASS`, `RABBIT_USER/PASS`, `GRAFANA_ADMIN_*`)
+живут только в корневом `.env`:
+- VM/compose-путь читает его нативно;
+- k8s-путь читает тот же файл: `deploy-k8s.yml` (задача `Load credentials
+from repo .env`) и `scripts/update-k8s-ips.sh` (`ENV_FILE`, явные env
+переменные имеют приоритет). В git секреты не попадают — в кластер
+едет только Secret `iot-db` / `grafana-admin`.
+
+Поменял пароль в `.env` — пересоздай секреты (деплой или скрипт),
+перезапускать ничего вручную не надо: поды подхватят при рестарте.
+
+Миграция на нормальный менеджер (Vault / External Secrets / SOPS):
+достаточно заменить один источник — задачу чтения `.env` в плейбуке
+и `ENV_FILE` в скрипте — потребители (`dot.*` факты, Secret'ы) не меняются.
 
 ## 11. Инфраструктура (Terraform + Ansible)
 

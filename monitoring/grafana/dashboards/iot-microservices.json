@@ -1,0 +1,123 @@
+{
+  "title": "IoT Microservices",
+  "uid": "iot-microservices",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "tags": ["iot", "microservices"],
+  "templating": {
+    "list": [
+      {
+        "name": "app",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "definition": "label_values(up{app=~\".+\"}, app)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scrape targets UP",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "refId": "A", "expr": "sum(up{app=~\".+\"})" }
+          ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "HTTP requests/sec by service",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (app) (rate(http_server_requests_seconds_count{app=~\"$app\"}[5m]))",
+          "legendFormat": "{{app}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "title": "HTTP requests/sec by pod (instance)",
+      "description": "Which pods serve traffic right now — proves per-pod load and HPA scale-out",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (app, instance) (rate(http_server_requests_seconds_count{app=~\"$app\"}[5m]))",
+          "legendFormat": "{{app}} {{instance}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "title": "p95 latency by service",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (app, le) (rate(http_server_requests_seconds_bucket{app=~\"$app\"}[5m])))",
+          "legendFormat": "{{app}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 5,
+      "title": "JVM heap used by pod",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (app, instance) (jvm_memory_used_bytes{area=\"heap\", app=~\"$app\"})",
+          "legendFormat": "{{app}} {{instance}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+    },
+    {
+      "id": 6,
+      "title": "Process CPU by pod (HPA signal)",
+      "description": "HPA scales backends at 15% CPU — new pods appear here under load",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (app, instance) (rate(process_cpu_seconds_total{app=~\"$app\"}[5m]))",
+          "legendFormat": "{{app}} {{instance}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 }
+    },
+    {
+      "id": 7,
+      "title": "RabbitMQ messages ready",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (queue) (rabbitmq_queue_messages_ready)",
+          "legendFormat": "{{queue}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 }
+    }
+  ]
+}

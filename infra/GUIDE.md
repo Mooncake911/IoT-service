@@ -200,12 +200,17 @@ ansible-playbook playbooks/deploy-k8s.yml \
   -e "vm_internal_ip=<db-vm-ip>"
 ```
 
-Плейбук поднимает MongoDB/RabbitMQ на VM (`--profile db`), патчит
-`k8s/configmap.yaml` под IP VM, применяет манифесты (`namespace`,
-`configmap`, workload'ы, `hpa.yaml`, `metrics-server`) и ждёт Ready всех
-подов. `k8s/load-test/job.yaml` специально не применяется автоматически —
+Плейбук поднимает MongoDB/RabbitMQ на VM (`--profile db`), создаёт
+Secret `iot-db` с endpoints БД (коммиченный `k8s/configmap.yaml` не
+мутирует), применяет workload'ы через Kustomize (`kubectl apply -k k8s/`,
+шаблон `k8s/base/`, имена/образы в `k8s/overlays/*`), пинит образы тегом
+(`kubectl set image ...:<tag>`) и ждёт Ready всех подов.
+`k8s/load-test/job.yaml` специально не применяется автоматически —
 только вручную после Ready. С `-e "enable_observability=true"` дополнительно
 применяет `k8s/observability/` (Prometheus, Grafana, ELK, Fluent Bit).
+Metrics-server в репо не вендорится: плейбук проверяет API
+`metrics.k8s.io` и падает с подсказкой (minikube:
+`minikube addons enable metrics-server`).
 
 ## Переключение VM ↔ K8s
 

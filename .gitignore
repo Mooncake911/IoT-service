@@ -192,6 +192,7 @@ terraform.rc
 # Include Secrects and Keys
 sa-key.json
 sa-access-key.json
+.secrets
 
 ### Ansible
 *.retry

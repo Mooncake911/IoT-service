@@ -1,0 +1,18 @@
+# Shared defaults for all IoT plays — single source of truth.
+# Overridden per-run via --extra-vars (see cd.yml), so playbooks themselves
+# stay free of environment-specific values.
+deploy_dir: "/home/{{ ansible_user }}/iot-service"
+
+github_owner: ""
+registry_username: ""
+registry_password: ""
+app_version: "latest"
+deploy_action: "deploy"
+
+enable_observability: false
+enable_argocd: false
+
+# Docker registry mirrors (they rot faster than code; keep them here).
+docker_registry_mirrors:
+  - https://cr.yandex/mirror
+  - https://mirror.gcr.io

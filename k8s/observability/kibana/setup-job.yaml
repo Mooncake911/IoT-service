@@ -1,0 +1,42 @@
+# One-shot setup: Kibana "Logs" data view over logs-*.
+# K8s port of elk/kibana/setup.sh (compose runs it as a service;
+# here it is a Job so it does not linger after success).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kibana-setup
+  namespace: iot
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: setup
+          image: curlimages/curl:8.10.1
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              echo "Waiting for Kibana..."
+              for i in $(seq 1 60); do
+                if curl -sf http://kibana:5601/api/status >/dev/null; then
+                  echo "Kibana is up."
+                  break
+                fi
+                sleep 5
+              done
+              curl -sf -X POST "http://kibana:5601/api/data_views/data_view" \
+                -H "Content-Type: application/json" \
+                -H "kbn-xsrf: true" \
+                -d '{"data_view":{"title":"logs-*","name":"Logs","timeFieldName":"@timestamp"}}' || \
+                echo "Data view already exists or Kibana not ready, continuing."
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"

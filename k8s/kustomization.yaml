@@ -1,0 +1,11 @@
+# Root: all app workloads. Deploy with `kubectl apply -k k8s/`.
+# load-test/ is manual, observability/ is a separate opt-in kustomization.
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - overlays/controller
+  - overlays/analytics
+  - overlays/alerts
+  - overlays/data-gateway
+  - overlays/data-simulator
+  - overlays/dashboard

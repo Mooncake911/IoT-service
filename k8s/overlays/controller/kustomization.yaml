@@ -1,0 +1,47 @@
+# iot-controller: base backend + HPA, only names and image differ.
+resources:
+  - ../../base/backend
+  - ../../base/hpa
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-controller
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-controller
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: iot-controller
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: iot-controller
+  - target:
+      kind: Service
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-controller
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-controller
+      - op: replace
+        path: /spec/selector/app
+        value: iot-controller
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-controller-hpa
+      - op: replace
+        path: /spec/scaleTargetRef/name
+        value: iot-controller
+
+images:
+  - name: iot-backend
+    newName: ghcr.io/mooncake911/iot-service/iot-controller
+    newTag: latest

@@ -67,8 +67,8 @@ variable "platform_id" {
   default     = "standard-v3"
 }
 
-variable "allowed_cidrs" {
+variable "allowed_public_cidrs" {
   type        = list(string)
-  description = "CIDR blocks allowed to access the K8s API"
+  description = "CIDR blocks allowed to reach the K8s API/Ingress (narrow in prod)"
   default     = ["0.0.0.0/0"]
 }

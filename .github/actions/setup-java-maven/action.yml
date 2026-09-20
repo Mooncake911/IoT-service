@@ -1,0 +1,27 @@
+# Composite: checkout + JDK + Maven cache for backend jobs.
+# Replaces duplicated actions/checkout + actions/setup-java blocks in ci.yml.
+name: setup-java-maven
+description: Checkout code and set up JDK with Maven cache
+
+inputs:
+  java-version:
+    description: JDK version
+    required: false
+    default: "24"
+  distribution:
+    description: JDK distribution
+    required: false
+    default: temurin
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: ${{ inputs.distribution }}
+        java-version: ${{ inputs.java-version }}
+        cache: maven

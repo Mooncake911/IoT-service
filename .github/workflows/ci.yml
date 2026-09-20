@@ -76,6 +76,7 @@ jobs:
           infra_only=false
           server_all=false
           dashboard_image=false
+          rabbitmq=false
           iot_controller=false
           iot_analytics=false
           iot_alerts=false
@@ -106,6 +107,11 @@ jobs:
             server_all=true
           fi
 
+          if [ "$ci" = true ] || changed '^monitoring/rabbitmq/'; then
+            server=true
+            rabbitmq=true
+          fi
+
           if [ "$ci" = true ] || changed '^iot-controller/'; then
             server=true
             iot_controller=true
@@ -133,7 +139,7 @@ jobs:
           fi
 
           export server client server_all dashboard_image infra_only
-          export iot_controller iot_analytics iot_alerts iot_data_gateway iot_data_simulator
+          export rabbitmq iot_controller iot_analytics iot_alerts iot_data_gateway iot_data_simulator
 
           python3 - <<'PY'
           import json
@@ -145,6 +151,7 @@ jobs:
               ("iot-alerts", ".", "./Dockerfile", "iot-alerts"),
               ("iot-data-gateway", ".", "./Dockerfile", "iot-data-gateway"),
               ("iot-data-simulator", ".", "./Dockerfile", "iot-data-simulator"),
+              ("iot-rabbitmq", "./monitoring/rabbitmq", "./monitoring/rabbitmq/Dockerfile", "rabbitmq"),
           ]
 
           service_flags = {
@@ -153,6 +160,7 @@ jobs:
               "iot-alerts": "iot_alerts",
               "iot-data-gateway": "iot_data_gateway",
               "iot-data-simulator": "iot_data_simulator",
+              "iot-rabbitmq": "rabbitmq",
           }
 
           all_services = [name for name, *_ in server_services] + ["iot-dashboard-ui"]
@@ -234,15 +242,8 @@ jobs:
     if: ${{ needs.changes.outputs.server == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up JDK 24
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "24"
-          cache: maven
+      - name: Set up JDK with Maven cache
+        uses: ./.github/actions/setup-java-maven
 
       - name: Package (skip tests)
         run: ./mvnw -B -DskipTests package
@@ -252,27 +253,12 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.client == 'true' }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: iot-dashboard
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: iot-dashboard/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Set up Node.js with dependencies
+        uses: ./.github/actions/setup-node-dashboard
 
       - name: Build static files
+        working-directory: iot-dashboard
         run: npm run build
 
   # ========================================================================
@@ -285,45 +271,130 @@ jobs:
     if: ${{ needs.changes.outputs.server == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Set up JDK with Maven cache
+        uses: ./.github/actions/setup-java-maven
 
-      - name: Set up JDK 24
-        uses: actions/setup-java@v5
+      # verify runs tests + JaCoCo check (LINE >= 80%, Lab 4 gate:
+      # the job fails when coverage is below the threshold)
+      - name: Run tests with coverage gate
+        run: ./mvnw -B verify
+
+      - name: Upload JaCoCo reports
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          distribution: temurin
-          java-version: "24"
-          cache: maven
-
-      - name: Run tests
-        run: ./mvnw -B test
+          name: jacoco-reports
+          path: "**/target/site/jacoco/jacoco.xml"
+          if-no-files-found: warn
 
   test-client:
     name: Test Client
     needs: build-client
     if: ${{ needs.changes.outputs.client == 'true' }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: iot-dashboard
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          submodules: recursive
-
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: iot-dashboard/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Set up Node.js with dependencies
+        uses: ./.github/actions/setup-node-dashboard
 
       - name: Run tests (if present)
+        working-directory: iot-dashboard
         run: npm test --if-present
+
+  # ========================================================================
+  #  SONARQUBE (Lab 4: static analysis + quality gate, SonarCloud)
+  #  Needs SONAR_TOKEN + SONAR_ORGANIZATION + SONAR_PROJECT_KEY repo
+  #  secrets. Skips gracefully without a token (e.g. in forks).
+  # ========================================================================
+
+  sonar:
+    name: SonarQube Scan
+    needs:
+      - changes
+      - test-server
+    if: ${{ needs.changes.outputs.server == 'true' && (needs.test-server.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up JDK with Maven cache
+        uses: ./.github/actions/setup-java-maven
+
+      - name: Download JaCoCo reports
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-reports
+          path: .
+
+      - name: SonarQube scan
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || '' }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '' }}
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "$SONAR_ORGANIZATION" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS -Dsonar.organization=$SONAR_ORGANIZATION"
+          fi
+          if [ -n "$SONAR_PROJECT_KEY" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS -Dsonar.projectKey=$SONAR_PROJECT_KEY"
+          fi
+          ./mvnw -B -DskipTests sonar:sonar \
+            -Dsonar.host.url="$SONAR_HOST_URL" \
+            $EXTRA_ARGS
+
+      - name: SonarQube quality gate
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+
+      - name: Sonar skipped (no SONAR_TOKEN)
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set, static analysis skipped. JaCoCo 80% gate is still enforced by test-server."
+
+  sonar-dashboard:
+    name: SonarQube Scan (dashboard)
+    needs:
+      - changes
+      - test-client
+    if: ${{ needs.changes.outputs.client == 'true' && (needs.test-client.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node.js with dependencies
+        uses: ./.github/actions/setup-node-dashboard
+
+      - name: Run tests with coverage
+        working-directory: iot-dashboard
+        run: npm run test:coverage
+
+      - name: SonarQube scan (dashboard)
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+        with:
+          projectBaseDir: iot-dashboard
+          args: >
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY_DASHBOARD }}
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.sources=src
+            -Dsonar.exclusions=**/*.test.tsx,**/*.test.ts,vite.config.ts
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+      - name: SonarQube quality gate (dashboard)
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+
+      - name: Sonar skipped (no SONAR_TOKEN)
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set, dashboard static analysis skipped."
 
   # ========================================================================
   #  DOCKER BUILD & PUSH (depends on all build & test jobs)
@@ -335,9 +406,11 @@ jobs:
       - changes
       - build-server
       - test-server
+      - sonar
       - build-client
       - test-client
-    if: ${{ always() && needs.changes.outputs.has_images == 'true' && (needs.build-server.result == 'success' || needs.build-server.result == 'skipped') && (needs.test-server.result == 'success' || needs.test-server.result == 'skipped') && (needs.build-client.result == 'success' || needs.build-client.result == 'skipped') && (needs.test-client.result == 'success' || needs.test-client.result == 'skipped') }}
+      - sonar-dashboard
+    if: ${{ always() && needs.changes.outputs.has_images == 'true' && (needs.build-server.result == 'success' || needs.build-server.result == 'skipped') && (needs.test-server.result == 'success' || needs.test-server.result == 'skipped') && (needs.sonar.result == 'success' || needs.sonar.result == 'skipped') && (needs.build-client.result == 'success' || needs.build-client.result == 'skipped') && (needs.test-client.result == 'success' || needs.test-client.result == 'skipped') && (needs.sonar-dashboard.result == 'success' || needs.sonar-dashboard.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -348,21 +421,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set lowercased repo owner env
-        run: |
-          echo "OWNER_LC=${OWNER,,}" >> $GITHUB_ENV
-        env:
-          OWNER: ${{ github.repository_owner }}
+        uses: ./.github/actions/docker-login-ghcr
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
@@ -394,24 +454,39 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.retag_matrix) }}
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set lowercased repo owner env
-        run: |
-          echo "OWNER_LC=${OWNER,,}" >> $GITHUB_ENV
-        env:
-          OWNER: ${{ github.repository_owner }}
+        uses: ./.github/actions/docker-login-ghcr
 
       - name: Tag unchanged image with current commit SHA
         run: |
           docker buildx imagetools create \
             -t ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:${{ github.sha }} \
             ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:latest
+  # ========================================================================
+  #  TELEGRAM NOTIFICATION (Lab 4: pipeline status bot)
+  # ========================================================================
+
+  notify:
+    name: Notify via Telegram
+    needs:
+      - changes
+      - build-server
+      - test-server
+      - sonar
+      - build-client
+      - test-client
+      - sonar-dashboard
+      - build-and-push
+      - tag-unchanged-images
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Send status to Telegram
+        uses: ./.github/actions/telegram-notify
+        with:
+          status: ${{ (needs.build-server.result == 'failure' || needs.test-server.result == 'failure' || needs.sonar.result == 'failure' || needs.build-client.result == 'failure' || needs.test-client.result == 'failure' || needs.sonar-dashboard.result == 'failure' || needs.build-and-push.result == 'failure' || needs.tag-unchanged-images.result == 'failure') && 'failure' || 'success' }}
+          workflow: CI
+          details: "event=${{ github.event_name }} ref=${{ github.ref_name }}"

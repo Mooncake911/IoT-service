@@ -74,13 +74,19 @@ variable "core_fraction" {
 
 variable "open_tcp_ports" {
   type        = list(number)
-  description = "TCP ports exposed from the VM"
-  default     = [22, 8081, 8082, 8083, 8084, 8085, 8501, 5672, 15672, 27017, 27018, 27019]
+  description = "Public TCP ports exposed from the VM (SSH is separate, see allowed_admin_cidrs). NOTE: observability (Grafana 3000, Prometheus 9090, Kibana 5601) is intentionally NOT exposed — it is served via the dashboard UI reverse-proxy (<ui>:8501/grafana/, <ui>:8501/prometheus/), prod-like."
+  default     = [8081, 8082, 8083, 8084, 8085, 8501, 5672, 15672, 27017, 27018, 27019]
 }
 
-variable "allowed_cidrs" {
+variable "allowed_public_cidrs" {
   type        = list(string)
-  description = "CIDR blocks allowed to access the VM"
+  description = "CIDR blocks allowed to reach public app/DB ports (narrow in prod)"
+  default     = ["0.0.0.0/0"]
+}
+
+variable "allowed_admin_cidrs" {
+  type        = list(string)
+  description = "CIDR blocks allowed to reach SSH port 22 (narrow to your IP in prod)"
   default     = ["0.0.0.0/0"]
 }
 

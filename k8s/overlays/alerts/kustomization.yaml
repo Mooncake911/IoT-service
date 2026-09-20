@@ -1,0 +1,47 @@
+# iot-alerts: base backend + HPA, only names and image differ.
+resources:
+  - ../../base/backend
+  - ../../base/hpa
+
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-alerts
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-alerts
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: iot-alerts
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: iot-alerts
+  - target:
+      kind: Service
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-alerts
+      - op: replace
+        path: /metadata/labels/app
+        value: iot-alerts
+      - op: replace
+        path: /spec/selector/app
+        value: iot-alerts
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: iot-alerts-hpa
+      - op: replace
+        path: /spec/scaleTargetRef/name
+        value: iot-alerts
+
+images:
+  - name: iot-backend
+    newName: ghcr.io/mooncake911/iot-service/iot-alerts
+    newTag: latest

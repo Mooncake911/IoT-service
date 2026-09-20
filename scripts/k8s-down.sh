@@ -33,6 +33,8 @@ done
 # shellcheck disable=SC2086
 kubectl delete -n "$NAMESPACE" --ignore-not-found $TARGETS
 
+kubectl delete -n "$NAMESPACE" --ignore-not-found secret/iot-db
+
 # shellcheck disable=SC2086
 kubectl wait --for=delete -n "$NAMESPACE" $TARGETS --timeout="$TIMEOUT"
 

@@ -1,0 +1,30 @@
+# Composite: checkout (with submodules) + Node.js + npm ci for dashboard jobs.
+# Replaces duplicated checkout + setup-node + npm ci blocks in ci.yml.
+name: setup-node-dashboard
+description: Checkout code and set up Node.js with dashboard dependencies installed
+
+inputs:
+  node-version:
+    description: Node.js version
+    required: false
+    default: "22"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        submodules: recursive
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: iot-dashboard/package-lock.json
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: iot-dashboard
+      run: npm ci

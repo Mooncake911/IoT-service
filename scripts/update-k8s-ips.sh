@@ -1,7 +1,33 @@
 #!/bin/sh
+# Creates/updates the `iot-db` Secret with DB endpoints for K8s workloads.
+# Replaces the old `sed -i k8s/configmap.yaml` approach: the committed
+# ConfigMap stays untouched, secrets never land in git.
+#
+# Modes (same as before):
+#   VM_INTERNAL_IP=<ip> ./scripts/update-k8s-ips.sh   # cloud VM
+#   MINIKUBE=1 ./scripts/update-k8s-ips.sh             # minikube
+#   ./scripts/update-k8s-ips.sh                        # local docker IPs
 set -eu
 
-CONFIGMAP="${1:-k8s/configmap.yaml}"
+NAMESPACE="${NAMESPACE:-iot}"
+SECRET_NAME="${SECRET_NAME:-iot-db}"
+NETWORK="${NETWORK:-iot-service_iot-network}"
+
+# .env is the single source of truth for secrets (same file compose uses).
+# Explicit env vars take precedence over .env values.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/../.env}"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+MONGO_USER="${MONGO_USER:-admin}"
+MONGO_PASS="${MONGO_PASS:-admin}"
+RABBIT_USER="${RABBIT_USER:-guest}"
+RABBIT_PASS="${RABBIT_PASS:-guest}"
+echo "Credentials loaded from: ${ENV_FILE} (user=$MONGO_USER/rabbit=$RABBIT_USER)"
 
 if [ -n "${VM_INTERNAL_IP:-}" ]; then
   echo "Cloud mode: using VM_INTERNAL_IP=$VM_INTERNAL_IP"
@@ -17,7 +43,6 @@ elif [ -n "${MINIKUBE:-}" ]; then
   RABBIT="host.minikube.internal"
 else
   # Local mode: detect IPs from Docker containers
-  NETWORK="iot-service_iot-network"
   get_ip() {
     docker inspect "$1" --format "{{.NetworkSettings.Networks.${NETWORK}.IPAddress}}" 2>/dev/null
   }
@@ -28,7 +53,7 @@ else
   RABBIT=$(get_ip rabbitmq)
 
   if [ -z "$MONGO_CTRL" ] || [ -z "$RABBIT" ]; then
-    echo "ERROR: Cannot detect container IPs. Is docker compose running?"
+    echo "ERROR: Cannot detect container IPs. Is docker compose running?" >&2
     exit 1
   fi
 fi
@@ -39,11 +64,13 @@ echo "  mongodb-analytics:  $MONGO_ANALYTICS"
 echo "  mongodb-alerts:     $MONGO_ALERTS"
 echo "  rabbitmq:           $RABBIT"
 
-sed -i \
-  -e "s|mongodb://admin:admin@[^/:]*:27017/iot_db_controller|mongodb://admin:admin@${MONGO_CTRL}:27017/iot_db_controller|" \
-  -e "s|mongodb://admin:admin@[^/:]*:27018/iot_analytics_db|mongodb://admin:admin@${MONGO_ANALYTICS}:27018/iot_analytics_db|" \
-  -e "s|mongodb://admin:admin@[^/:]*:27019/iot_alerts_db|mongodb://admin:admin@${MONGO_ALERTS}:27019/iot_alerts_db|" \
-  -e "s/RABBIT_HOST: .*/RABBIT_HOST: ${RABBIT}/" \
-  "$CONFIGMAP"
+kubectl -n "$NAMESPACE" create secret generic "$SECRET_NAME" \
+  --from-literal=MONGO_CONTROLLER_URI="mongodb://${MONGO_USER}:${MONGO_PASS}@${MONGO_CTRL}:27017/iot_db_controller?authSource=admin" \
+  --from-literal=MONGO_ANALYTICS_URI="mongodb://${MONGO_USER}:${MONGO_PASS}@${MONGO_ANALYTICS}:27018/iot_analytics_db?authSource=admin" \
+  --from-literal=MONGO_ALERTS_URI="mongodb://${MONGO_USER}:${MONGO_PASS}@${MONGO_ALERTS}:27019/iot_alerts_db?authSource=admin" \
+  --from-literal=RABBIT_HOST="$RABBIT" \
+  --from-literal=RABBIT_USER="$RABBIT_USER" \
+  --from-literal=RABBIT_PASS="$RABBIT_PASS" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
-echo "Updated $CONFIGMAP"
+echo "Secret $NAMESPACE/$SECRET_NAME applied"

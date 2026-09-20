@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 0.13"
+  required_version = ">= 1.5"
 
   required_providers {
     yandex = {
@@ -62,9 +62,16 @@ resource "yandex_vpc_security_group" "iot" {
     content {
       description    = "Allow TCP ${ingress.value}"
       protocol       = "TCP"
-      v4_cidr_blocks = var.allowed_cidrs
+      v4_cidr_blocks = var.allowed_public_cidrs
       port           = ingress.value
     }
+  }
+
+  ingress {
+    description    = "Allow SSH admin access"
+    protocol       = "TCP"
+    v4_cidr_blocks = var.allowed_admin_cidrs
+    port           = 22
   }
 
   egress {

@@ -224,13 +224,16 @@ jobs:
           kubectl get hpa -n iot
 
       - name: Smoke-check gateway after K8s deploy
+        env:
+          GATEWAY_BASE_URL: http://localhost:18085
+          DASHBOARD_BASE_URL: http://localhost:18501
         run: |
           kubectl port-forward -n iot svc/iot-data-gateway 18085:8080 > /tmp/pf-gateway.log 2>&1 &
           echo $! > /tmp/pf-gateway.pid
           kubectl port-forward -n iot svc/iot-dashboard-ui 18501:8080 > /tmp/pf-dashboard.log 2>&1 &
           echo $! > /tmp/pf-dashboard.pid
           for i in $(seq 1 30); do
-            if curl -sf "http://localhost:18085/api/v1/analytics/status" >/dev/null; then
+            if curl -sf "${GATEWAY_BASE_URL}/api/v1/analytics/status" >/dev/null; then
               echo "Gateway OK"
               break
             fi
@@ -238,7 +241,7 @@ jobs:
             sleep 10
           done
           chmod +x scripts/smoke-check.sh
-          ./scripts/smoke-check.sh "http://localhost:18085" "http://localhost:18501"
+          ./scripts/smoke-check.sh "${GATEWAY_BASE_URL}" "${DASHBOARD_BASE_URL}"
           kill "$(cat /tmp/pf-gateway.pid)" "$(cat /tmp/pf-dashboard.pid)" || true
 
       - name: Publish deployment summary

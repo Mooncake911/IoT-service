@@ -271,12 +271,15 @@ jobs:
           fi
 
       - name: Smoke-check gateway after VM deploy
+        # NOTE (Sonar clear-text hotspot): plain HTTP is intentional here —
+        # these are internal actuator healthchecks, services expose no TLS
+        # endpoint. Review as Safe in SonarCloud UI.
+        env:
+          GATEWAY_BASE_URL: http://${{ env.VM_IP }}:8085
+          DASHBOARD_BASE_URL: http://${{ env.VM_IP }}:8501
         run: |
-          # NOTE (Sonar clear-text hotspot): plain HTTP is intentional here —
-          # these are internal actuator healthchecks, services expose no TLS
-          # endpoint. Review as Safe in SonarCloud UI.
           for i in $(seq 1 30); do
-            if curl -sf "http://${{ env.VM_IP }}:8085/api/v1/analytics/status" >/dev/null; then
+            if curl -sf "${GATEWAY_BASE_URL}/api/v1/analytics/status" >/dev/null; then
               echo "Gateway OK"
               break
             fi
@@ -284,7 +287,7 @@ jobs:
             sleep 10
           done
           chmod +x scripts/smoke-check.sh
-          ./scripts/smoke-check.sh "http://${{ env.VM_IP }}:8085" "http://${{ env.VM_IP }}:8501"
+          ./scripts/smoke-check.sh "${GATEWAY_BASE_URL}" "${DASHBOARD_BASE_URL}"
 
       - name: Publish deployment summary
         if: always()

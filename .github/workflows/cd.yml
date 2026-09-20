@@ -39,9 +39,6 @@ on:
           - vm
           - k8s
 
-permissions:
-  contents: read
-  packages: write
 
 concurrency:
   group: cd-${{ github.event.inputs.deploy_target }}
@@ -51,6 +48,9 @@ jobs:
   deploy:
     name: Deploy to Yandex Cloud
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     # All cloud credentials enter scripts via environment (never inline
     # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
     env:

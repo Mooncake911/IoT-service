@@ -21,14 +21,13 @@ on:
       - "k8s/**"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
 
 jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       server: ${{ steps.filter.outputs.server }}
       client: ${{ steps.filter.outputs.client }}
@@ -241,6 +240,9 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.server == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -256,6 +258,9 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.client == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -278,6 +283,9 @@ jobs:
     needs: build-server
     if: ${{ needs.changes.outputs.server == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -303,6 +311,9 @@ jobs:
     needs: build-client
     if: ${{ needs.changes.outputs.client == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -329,6 +340,9 @@ jobs:
       - test-server
     if: ${{ needs.changes.outputs.server == 'true' && (needs.test-server.result == 'success') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
@@ -367,6 +381,9 @@ jobs:
       - test-client
     if: ${{ needs.changes.outputs.client == 'true' && (needs.test-client.result == 'success') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
@@ -423,6 +440,9 @@ jobs:
       - sonar-dashboard
     if: ${{ always() && needs.changes.outputs.has_images == 'true' && (needs.build-server.result == 'success' || needs.build-server.result == 'skipped') && (needs.test-server.result == 'success' || needs.test-server.result == 'skipped') && (needs.sonar.result == 'success' || needs.sonar.result == 'skipped') && (needs.build-client.result == 'success' || needs.build-client.result == 'skipped') && (needs.test-client.result == 'success' || needs.test-client.result == 'skipped') && (needs.sonar-dashboard.result == 'success' || needs.sonar-dashboard.result == 'skipped') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.image_matrix) }}
@@ -467,6 +487,9 @@ jobs:
       - build-and-push
     if: ${{ always() && needs.changes.outputs.has_retags == 'true' && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.retag_matrix) }}
@@ -503,6 +526,8 @@ jobs:
       - tag-unchanged-images
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v5

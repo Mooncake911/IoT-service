@@ -28,13 +28,13 @@ on:
       - ".github/**"
   workflow_dispatch:
 
-permissions:
-  contents: read
 
 jobs:
   preflight:
     name: Infra static checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v5

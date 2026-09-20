@@ -351,28 +351,10 @@ jobs:
         if: ${{ env.SONAR_TOKEN != '' }}
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
-          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || '' }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '' }}
+        # org/key/wait come from pom.xml properties; host defaults to SonarCloud.
         run: |
-          EXTRA_ARGS=()
-          if [ -n "$SONAR_ORGANIZATION" ]; then
-            EXTRA_ARGS+=("-Dsonar.organization=$SONAR_ORGANIZATION")
-          fi
-          if [ -n "$SONAR_PROJECT_KEY" ]; then
-            EXTRA_ARGS+=("-Dsonar.projectKey=$SONAR_PROJECT_KEY")
-          fi
           ./mvnw -B -DskipTests sonar:sonar \
-            -Dsonar.host.url="$SONAR_HOST_URL" \
-            "${EXTRA_ARGS[@]}"
-
-      - name: SonarQube quality gate
-        if: ${{ env.SONAR_TOKEN != '' }}
-        env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '' }}
-          BRANCH_NAME: ${{ github.ref_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: sh scripts/sonar-quality-gate.sh
+            -Dsonar.host.url="$SONAR_HOST_URL"
 
       - name: Sonar skipped (no SONAR_TOKEN)
         if: ${{ env.SONAR_TOKEN == '' }}
@@ -387,8 +369,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || '' }}
-      SONAR_PROJECT_KEY_DASHBOARD: ${{ secrets.SONAR_PROJECT_KEY_DASHBOARD || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -407,11 +387,11 @@ jobs:
       - name: Check SonarCloud readiness
         id: readiness
         run: |
-          if [ -n "$SONAR_TOKEN" ] && [ -n "$SONAR_ORGANIZATION" ] && [ -n "$SONAR_PROJECT_KEY_DASHBOARD" ]; then
+          if [ -n "$SONAR_TOKEN" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "SonarCloud scan skipped: set SONAR_TOKEN, SONAR_ORGANIZATION and SONAR_PROJECT_KEY_DASHBOARD secrets."
+            echo "SonarCloud scan skipped: set SONAR_TOKEN secret."
           fi
 
       - name: SonarQube scan (dashboard)
@@ -420,22 +400,8 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         with:
+          # All analysis parameters come from iot-dashboard/sonar-project.properties.
           projectBaseDir: iot-dashboard
-          args: >
-            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY_DASHBOARD }}
-            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
-            -Dsonar.sources=src
-            -Dsonar.exclusions=**/*.test.tsx,**/*.test.ts,vite.config.ts
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-
-      - name: SonarQube quality gate (dashboard)
-        if: ${{ steps.readiness.outputs.ready == 'true' }}
-        env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
-          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY_DASHBOARD }}
-          BRANCH_NAME: ${{ github.ref_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: sh scripts/sonar-quality-gate.sh
 
       - name: Sonar skipped (not configured)
         if: ${{ steps.readiness.outputs.ready != 'true' }}

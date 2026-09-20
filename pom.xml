@@ -42,6 +42,7 @@
         <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.organization>mooncake911</sonar.organization>
         <sonar.projectKey>Mooncake911_IoT-service</sonar.projectKey>
+        <sonar.qualitygate.wait>true</sonar.qualitygate.wait>
 
         <logstash-logback.version>8.1</logstash-logback.version>
     </properties>

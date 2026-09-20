@@ -255,9 +255,11 @@ curl -s http://localhost:5601/api/status -H "kbn-xsrf: true"
 
 ## 11. Лаба 4: SonarQube, ArgoCD, Telegram-бот
 
-SonarQube (`ci.yml` jobs `sonar` + `sonar-dashboard`): задать secrets репозитория
-`SONAR_TOKEN`, `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY` (бэкенд) и
-`SONAR_PROJECT_KEY_DASHBOARD` (клиент). Без токена job'ы пропускаются, но JaCoCo-gate 80%
+SonarQube (`ci.yml` jobs `sonar` + `sonar-dashboard`): нужен только секрет
+`SONAR_TOKEN` (плюс опционально `SONAR_HOST_URL` для самоподнятого сервера —
+по умолчанию SonarCloud). Организация и ключи проектов зашиты в коде:
+`pom.xml` (`sonar.organization`, `sonar.projectKey`) и
+`iot-dashboard/sonar-project.properties`. Без токена job'ы пропускаются, но JaCoCo-gate 80%
 (`mvn verify` в `test-server`) действует всегда — CI красный при
 покрытии ниже порога.
 

@@ -2,17 +2,17 @@
 # Replaces triplicated setup-buildx + docker/login + OWNER_LC blocks
 # in ci.yml (build-and-push, tag-unchanged-images) and cd.yml.
 # Token comes as input (composite steps cannot read the `secrets`
-# context — callers pass ${{ secrets.GITHUB_TOKEN }} via `with:`).
+# context — callers pass the GitHub token via `with:`).
 # OWNER_LC is exported via $GITHUB_ENV for later steps in the same job.
 name: docker-login-ghcr
 description: Set up Docker Buildx and log in to GHCR
 
 inputs:
   token:
-    description: GHCR token (pass ${{ secrets.GITHUB_TOKEN }})
+    description: GHCR token (callers pass secrets.GITHUB_TOKEN)
     required: true
   username:
-    description: GHCR username (pass ${{ github.actor }})
+    description: GHCR username (callers pass github.actor)
     required: true
 
 runs:

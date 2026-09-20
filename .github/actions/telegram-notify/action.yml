@@ -18,11 +18,11 @@ inputs:
     required: false
     default: ""
   bot-token:
-    description: Telegram bot token (pass ${{ secrets.TELEGRAM_BOT_TOKEN }})
+    description: Telegram bot token (callers pass secrets.TELEGRAM_BOT_TOKEN)
     required: false
     default: ""
   chat-id:
-    description: Telegram chat id (pass ${{ secrets.TELEGRAM_CHAT_ID }})
+    description: Telegram chat id (callers pass secrets.TELEGRAM_CHAT_ID)
     required: false
     default: ""
 

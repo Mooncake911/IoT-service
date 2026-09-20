@@ -351,16 +351,16 @@ jobs:
           SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || '' }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '' }}
         run: |
-          EXTRA_ARGS=""
+          EXTRA_ARGS=()
           if [ -n "$SONAR_ORGANIZATION" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS -Dsonar.organization=$SONAR_ORGANIZATION"
+            EXTRA_ARGS+=("-Dsonar.organization=$SONAR_ORGANIZATION")
           fi
           if [ -n "$SONAR_PROJECT_KEY" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS -Dsonar.projectKey=$SONAR_PROJECT_KEY"
+            EXTRA_ARGS+=("-Dsonar.projectKey=$SONAR_PROJECT_KEY")
           fi
           ./mvnw -B -DskipTests sonar:sonar \
             -Dsonar.host.url="$SONAR_HOST_URL" \
-            $EXTRA_ARGS
+            "${EXTRA_ARGS[@]}"
 
       - name: SonarQube quality gate
         if: ${{ env.SONAR_TOKEN != '' }}
@@ -382,6 +382,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || '' }}
+      SONAR_PROJECT_KEY_DASHBOARD: ${{ secrets.SONAR_PROJECT_KEY_DASHBOARD || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -395,30 +397,40 @@ jobs:
         working-directory: iot-dashboard
         run: npm run test:coverage
 
+      - name: Check SonarCloud readiness
+        id: readiness
+        run: |
+          if [ -n "$SONAR_TOKEN" ] && [ -n "$SONAR_ORGANIZATION" ] && [ -n "$SONAR_PROJECT_KEY_DASHBOARD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "SonarCloud scan skipped: set SONAR_TOKEN, SONAR_ORGANIZATION and SONAR_PROJECT_KEY_DASHBOARD secrets."
+          fi
+
       - name: SonarQube scan (dashboard)
-        if: ${{ env.SONAR_TOKEN != '' }}
+        if: ${{ steps.readiness.outputs.ready == 'true' }}
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         with:
           projectBaseDir: iot-dashboard
           args: >
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY_DASHBOARD }}
-            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY_DASHBOARD }}
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
             -Dsonar.sources=src
             -Dsonar.exclusions=**/*.test.tsx,**/*.test.ts,vite.config.ts
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
       - name: SonarQube quality gate (dashboard)
-        if: ${{ env.SONAR_TOKEN != '' }}
+        if: ${{ steps.readiness.outputs.ready == 'true' }}
         uses: SonarSource/sonarqube-quality-gate-action@v1
         timeout-minutes: 5
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
 
-      - name: Sonar skipped (no SONAR_TOKEN)
-        if: ${{ env.SONAR_TOKEN == '' }}
-        run: echo "SONAR_TOKEN not set, dashboard static analysis skipped."
+      - name: Sonar skipped (not configured)
+        if: ${{ steps.readiness.outputs.ready != 'true' }}
+        run: echo "Dashboard static analysis skipped (see readiness check above)."
 
   # ========================================================================
   #  DOCKER BUILD & PUSH (depends on all build & test jobs)

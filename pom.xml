@@ -40,6 +40,8 @@
         <jacoco-maven-plugin.version>0.8.13</jacoco-maven-plugin.version>
         <sonar-maven-plugin.version>5.8.0.7211</sonar-maven-plugin.version>
         <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.organization>mooncake911</sonar.organization>
+        <sonar.projectKey>Mooncake911_IoT-service</sonar.projectKey>
 
         <logstash-logback.version>8.1</logstash-logback.version>
     </properties>

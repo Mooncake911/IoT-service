@@ -30,8 +30,21 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p ~/.ssh
-        printf '%s' "$SSH_KEY" > ~/.ssh/id_ed25519
+        # Normalize: strip Windows CRs (PEM with \r\n fails in libcrypto),
+        # ensure exactly one trailing newline.
+        printf '%s' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+        if [ -n "$(tail -c 1 ~/.ssh/id_ed25519)" ]; then
+          echo >> ~/.ssh/id_ed25519
+        fi
         chmod 600 ~/.ssh/id_ed25519
+        # Fail fast with an actionable error instead of cryptic
+        # "error in libcrypto / Permission denied" deep in Ansible.
+        if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
+          echo "ERROR: the SSH private key secret is not a valid OpenSSH key." >&2
+          echo "Provide the full '-----BEGIN OPENSSH PRIVATE KEY-----' ... '-----END ...' text as-is (no PuTTY .ppk, no quotes, no literal \\n)." >&2
+          exit 1
+        fi
+        echo "SSH private key OK."
 
     - name: Wait for VM SSH connection
       shell: bash

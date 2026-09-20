@@ -1,0 +1,121 @@
+# Composite: ephemeral S3 backend keys for Yandex Object Storage.
+# Mints a short-lived static access key on the deploy service account,
+# so no long-lived S3 secrets are stored in GitHub Secrets. Used by
+# cd-vm, cd-k8s and cd-destroy before any terraform/backend operation.
+# Cleanup: run again with operation=revoke (best effort) at job end.
+name: ephemeral-s3-keys
+description: Mint or revoke short-lived S3 backend keys on the deploy SA
+
+inputs:
+  operation:
+    description: mint or revoke
+    required: false
+    default: mint
+  yc-sa-key-json:
+    description: Yandex service account key JSON (pass a secret, mint only)
+    required: false
+    default: ""
+  yc-cloud-id:
+    description: Yandex Cloud ID for yc CLI profile (optional)
+    required: false
+    default: ""
+  yc-folder-id:
+    description: Yandex Cloud folder ID for yc CLI profile (optional)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Mint ephemeral S3 key
+      if: ${{ inputs.operation == 'mint' }}
+      shell: bash
+      env:
+        YC_SA_KEY_JSON: ${{ inputs.yc-sa-key-json }}
+      run: |
+        set -euo pipefail
+        if [ -z "$YC_SA_KEY_JSON" ]; then
+          echo "yc-sa-key-json input is empty." >&2
+          exit 1
+        fi
+        if ! command -v yc >/dev/null 2>&1; then
+          echo "Installing Yandex Cloud CLI..."
+          curl --proto "=https" -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/yandex-cloud/bin:$PATH"
+        fi
+        ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
+        echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> "$GITHUB_ENV"
+        # Persist a yc CLI profile for this runner so later steps
+        # (including revoke) work without extra setup.
+        yc config set service-account-key /tmp/yc-sa-key.json >/dev/null
+        if [ -n "${{ inputs.yc-cloud-id }}" ]; then
+          yc config set cloud-id "${{ inputs.yc-cloud-id }}" >/dev/null
+        fi
+        if [ -n "${{ inputs.yc-folder-id }}" ]; then
+          yc config set folder-id "${{ inputs.yc-folder-id }}" >/dev/null
+        fi
+        SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
+        RAW="$(yc iam access-key create --service-account-id "$SA_ID" \
+          --description "ephemeral-github-actions" --format json)"
+        # yc returns BOTH a resource id (for delete) and auth credentials
+        # (key_id/secret for S3). They are different values — capture both.
+        PARSED="$(printf '%s' "$RAW" | python3 -c "
+        import sys, json
+        try:
+            d = json.load(sys.stdin)
+        except Exception:
+            print('PARSE-FAILED')
+            sys.exit(0)
+        def find_creds(d):
+            if isinstance(d, dict):
+                if 'key_id' in d and 'secret' in d:
+                    return d['key_id'], d['secret']
+                for v in d.values():
+                    r = find_creds(v)
+                    if r:
+                        return r
+            elif isinstance(d, list):
+                for v in d:
+                    r = find_creds(v)
+                    if r:
+                        return r
+            return None
+        rid = d.get('id', '') if isinstance(d, dict) else ''
+        r = find_creds(d)
+        if not r or not all(r) or not rid:
+            print('PARSE-FAILED')
+        else:
+            print(rid + ' ' + r[0] + ' ' + r[1])
+        ")"
+        if [ "$PARSED" = "PARSE-FAILED" ]; then
+          echo "Could not parse access key from yc output (shape changed?). Top-level keys:" >&2
+          printf '%s' "$RAW" | python3 -c "import sys,json; print(list(json.load(sys.stdin).keys()))" >&2 || true
+          exit 1
+        fi
+        KEY_RESOURCE_ID="$(printf '%s' "$PARSED" | cut -d' ' -f1)"
+        KEY_ID="$(printf '%s' "$PARSED" | cut -d' ' -f2)"
+        SECRET="$(printf '%s' "$PARSED" | cut -d' ' -f3-)"
+        echo "::add-mask::$SECRET"
+        {
+          echo "S3_ACCESS_KEY_ID=$KEY_ID"
+          echo "S3_SECRET_ACCESS_KEY=$SECRET"
+          echo "S3_KEY_ID=$KEY_RESOURCE_ID"
+        } >> "$GITHUB_ENV"
+        echo "Ephemeral S3 key minted."
+
+    - name: Revoke ephemeral S3 key
+      if: ${{ inputs.operation == 'revoke' }}
+      shell: bash
+      run: |
+        if [ -z "${S3_KEY_ID:-}" ]; then
+          echo "No ephemeral key was minted in this job, nothing to revoke."
+          exit 0
+        fi
+        export PATH="$HOME/yandex-cloud/bin:$PATH"
+        if yc iam access-key delete "$S3_KEY_ID" >/dev/null 2>&1; then
+          echo "Ephemeral S3 key revoked."
+        else
+          echo "::warning::Could not revoke ephemeral key $S3_KEY_ID automatically."
+          echo "::warning::Sweep leftovers with: yc iam access-key list --service-account-name <deploy-sa>"
+        fi

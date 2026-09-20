@@ -45,8 +45,6 @@ jobs:
     # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
     env:
       YC_SA_KEY_JSON: ${{ secrets.YC_SA_KEY_JSON }}
-      YC_STORAGE_ACCESS_KEY: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-      YC_STORAGE_SECRET_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
       YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
       YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
       SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
@@ -55,6 +53,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Mint ephemeral S3 backend keys
+        uses: ./.github/actions/ephemeral-s3-keys
+        with:
+          operation: mint
+          yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+          yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
 
       - name: Parse inputs & set environment
         run: |
@@ -86,12 +92,6 @@ jobs:
         with:
           terraform_version: "1.15.5"
 
-      - name: Save Yandex Service Account Key
-        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
-        run: |
-          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
-          echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> "$GITHUB_ENV"
-
       - name: Run Terraform Apply (base)
         if: ${{ env.RUN_TERRAFORM == 'true' }}
         uses: ./.github/actions/terraform-stack
@@ -101,8 +101,8 @@ jobs:
           yc-sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
           yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
           yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
-          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+          backend-access-key: ${{ env.S3_ACCESS_KEY_ID }}
+          backend-secret-key: ${{ env.S3_SECRET_ACCESS_KEY }}
 
       - name: Run Terraform Apply (vm)
         if: ${{ env.RUN_TERRAFORM == 'true' }}
@@ -114,14 +114,14 @@ jobs:
           yc-cloud-id: ${{ secrets.YC_CLOUD_ID }}
           yc-folder-id: ${{ secrets.YC_FOLDER_ID }}
           ssh-public-key: ${{ secrets.SSH_PUBLIC_KEY }}
-          backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+          backend-access-key: ${{ env.S3_ACCESS_KEY_ID }}
+          backend-secret-key: ${{ env.S3_SECRET_ACCESS_KEY }}
 
       - name: Determine VM IP
         id: get-ip
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ env.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.S3_SECRET_ACCESS_KEY }}
         run: |
           if [ -n "${{ vars.VM_IP }}" ]; then
             echo "VM_IP=${{ vars.VM_IP }}" >> "$GITHUB_ENV"
@@ -130,8 +130,8 @@ jobs:
             cd infra/terraform/vm
             if [ ! -d ".terraform" ]; then
               terraform init -input=false \
-                -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
-                -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
+                -backend-config="access_key=$S3_ACCESS_KEY_ID" \
+                -backend-config="secret_key=$S3_SECRET_ACCESS_KEY"
             fi
             IP=$(terraform output -raw vm_public_ip)
             echo "VM_IP=$IP" >> "$GITHUB_ENV"
@@ -142,14 +142,14 @@ jobs:
       - name: Get Backup Storage Details from Terraform
         id: get-backup-details
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_STORAGE_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ env.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.S3_SECRET_ACCESS_KEY }}
         run: |
           if [ ! -d "infra/terraform/vm/.terraform" ]; then
             cd infra/terraform/vm
             terraform init -input=false \
-              -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
-              -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
+              -backend-config="access_key=$S3_ACCESS_KEY_ID" \
+              -backend-config="secret_key=$S3_SECRET_ACCESS_KEY"
             cd ../../..
           fi
           BACKUP_BUCKET=$(cd infra/terraform/vm && terraform output -raw backup_bucket_name 2>/dev/null || echo "")
@@ -221,14 +221,9 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
-      - name: Install Yandex Cloud CLI (VM-teardown path)
-        if: vars.K8S_CLUSTER_NAME != ''
-        run: |
-          curl --proto "=https" -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
-
       # Switching VM <- K8s: unmanage the cluster from GitOps FIRST,
       # otherwise ArgoCD selfHeal restores workloads during/after teardown.
+      # (yc CLI is already installed by the mint step above.)
       - name: Teardown K8s world before VM deploy
         if: vars.K8S_CLUSTER_NAME != ''
         run: |
@@ -321,3 +316,9 @@ jobs:
           details: "action=${{ env.ACTION }} tag=${{ env.TAG }}"
           bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Revoke ephemeral S3 backend keys
+        if: always()
+        uses: ./.github/actions/ephemeral-s3-keys
+        with:
+          operation: revoke

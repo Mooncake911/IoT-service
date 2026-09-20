@@ -59,12 +59,15 @@ yc resource-manager folder add-access-binding <folder-id> \
   --role editor --subject serviceAccount:$SA_ID
 ```
 
-Ключи для S3-бэкенда (`access_key`/`secret_key` в `init -backend-config`)
-должны принадлежать сервисному аккаунту с правами на Object Storage
-(роль `storage.admin` на каталог); создать их можно так:
+Ключи для S3-бэкенда в CI нигде не хранятся: каждый прогон CD выпускает
+короткоживущий static access key на deploy-SA (`ephemeral-s3-keys`, удаление
+в конце job'а) и использует его для `init`/`apply`/`output`. Deploy-SA при
+этом должен уметь создавать ключи (роль `editor` это покрывает) и ходить
+в Object Storage. Для локальных прогонов вне CI создай личный ключ так:
 
 ```bash
 yc iam access-key create --service-account-name <sa-name>
+export AWS_ACCESS_KEY_ID="<key-id>" AWS_SECRET_ACCESS_KEY="<secret>"
 ```
 
 Если `yc` сам отвечает `PermissionDenied` даже на чтение (`vpc network get`,
@@ -273,3 +276,42 @@ Applications, затем сносит деплойменты/HPA/Secret; иде�
 - Полный снос: workflow `cd-destroy.yml`, target `vm` или `k8s`,
 подтверждение строкой `DESTROY`. Порядок при зачистке всего —
 сначала `k8s`, потом `vm` (иначе кластер останется без БД).
+
+## Восстановление удалённого storage SA
+
+Если сервисный аккаунт `iot-storage-sa` (ключи `YC_STORAGE_ACCESS_KEY` /
+`YC_STORAGE_SECRET_KEY`) удалён мимо Terraform — стейт врёт, apply падает.
+Данные и бакет при этом целы. Порядок восстановления:
+
+1. Временный S3-ключ на живой deploy-SA (секрет виден **только** в выводе;
+в CI этот шаг не нужен — ключи выпускаются автоматически на каждый прогон):
+```bash
+yc iam access-key create --service-account-name <deploy-sa-name>
+export AWS_ACCESS_KEY_ID="<key-id>" AWS_SECRET_ACCESS_KEY="<secret>"
+```
+2. Убрать мёртвые ресурсы из стейта (самих ресурсов в облаке уже нет):
+```bash
+cd infra/terraform/vm
+terraform init -input=false \
+  -backend-config="access_key=$AWS_ACCESS_KEY_ID" \
+  -backend-config="secret_key=$AWS_SECRET_ACCESS_KEY"
+terraform state rm \
+  yandex_iam_service_account.storage_sa \
+  yandex_iam_service_account_static_access_key.storage_sa_static_key \
+  yandex_resourcemanager_folder_iam_member.storage_sa_admin \
+  yandex_resourcemanager_folder_iam_member.storage_sa_kms
+```
+3. Применить заново (SA пересоздастся с тем же именем, бакет и KMS не тронутся):
+```bash
+terraform apply -var-file="terraform.tfvars"
+```
+4. Забрать новые токены и обновить GitHub Secrets (иначе CI/CD продолжат
+ходить со старыми мёртвыми ключами):
+```bash
+terraform output -raw backup_storage_access_key   # -> YC_STORAGE_ACCESS_KEY
+terraform output -raw backup_storage_secret_key   # -> YC_STORAGE_SECRET_KEY
+```
+5. Удалить временный ключ deploy-SA: `yc iam access-key delete <key-id>`.
+
+Правило на будущее: IAM-сущности, созданные Terraform, удалять только
+через `terraform destroy -target=...`, никогда руками в консоли.

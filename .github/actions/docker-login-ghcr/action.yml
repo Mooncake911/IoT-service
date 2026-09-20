@@ -1,9 +1,19 @@
 # Composite: Buildx + GHCR login + lowercased owner env.
 # Replaces triplicated setup-buildx + docker/login + OWNER_LC blocks
 # in ci.yml (build-and-push, tag-unchanged-images) and cd.yml.
+# Token comes as input (composite steps cannot read the `secrets`
+# context — callers pass ${{ secrets.GITHUB_TOKEN }} via `with:`).
 # OWNER_LC is exported via $GITHUB_ENV for later steps in the same job.
 name: docker-login-ghcr
 description: Set up Docker Buildx and log in to GHCR
+
+inputs:
+  token:
+    description: GHCR token (pass ${{ secrets.GITHUB_TOKEN }})
+    required: true
+  username:
+    description: GHCR username (pass ${{ github.actor }})
+    required: true
 
 runs:
   using: composite
@@ -15,8 +25,8 @@ runs:
       uses: docker/login-action@v4
       with:
         registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.token }}
 
     - name: Export lowercased repo owner
       shell: bash

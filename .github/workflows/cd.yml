@@ -195,6 +195,9 @@ jobs:
       - name: Log in to GHCR for image checks
         if: env.ACTION == 'deploy'
         uses: ./.github/actions/docker-login-ghcr
+        with:
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ensure container images exist for deploy tag
         if: env.ACTION == 'deploy'
@@ -362,3 +365,5 @@ jobs:
           status: ${{ job.status }}
           workflow: CD
           details: "target=${{ env.DEPLOY_TARGET }} action=${{ env.ACTION }} tag=${{ env.TAG }}"
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

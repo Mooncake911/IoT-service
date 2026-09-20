@@ -313,6 +313,8 @@ jobs:
       - test-server
     if: ${{ needs.changes.outputs.server == 'true' && (needs.test-server.result == 'success') }}
     runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Set up JDK with Maven cache
         uses: ./.github/actions/setup-java-maven
@@ -324,9 +326,8 @@ jobs:
           path: .
 
       - name: SonarQube scan
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ env.SONAR_TOKEN != '' }}
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
           SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || '' }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '' }}
@@ -343,15 +344,14 @@ jobs:
             $EXTRA_ARGS
 
       - name: SonarQube quality gate
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-quality-gate-action@v1
         timeout-minutes: 5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
 
       - name: Sonar skipped (no SONAR_TOKEN)
-        if: ${{ secrets.SONAR_TOKEN == '' }}
+        if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set, static analysis skipped. JaCoCo 80% gate is still enforced by test-server."
 
   sonar-dashboard:
@@ -361,6 +361,8 @@ jobs:
       - test-client
     if: ${{ needs.changes.outputs.client == 'true' && (needs.test-client.result == 'success') }}
     runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Set up Node.js with dependencies
         uses: ./.github/actions/setup-node-dashboard
@@ -370,10 +372,9 @@ jobs:
         run: npm run test:coverage
 
       - name: SonarQube scan (dashboard)
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v8
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         with:
           projectBaseDir: iot-dashboard
@@ -385,15 +386,14 @@ jobs:
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
       - name: SonarQube quality gate (dashboard)
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-quality-gate-action@v1
         timeout-minutes: 5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
 
       - name: Sonar skipped (no SONAR_TOKEN)
-        if: ${{ secrets.SONAR_TOKEN == '' }}
+        if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set, dashboard static analysis skipped."
 
   # ========================================================================
@@ -423,6 +423,9 @@ jobs:
 
       - name: Log in to GHCR
         uses: ./.github/actions/docker-login-ghcr
+        with:
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
@@ -456,6 +459,9 @@ jobs:
     steps:
       - name: Log in to GHCR
         uses: ./.github/actions/docker-login-ghcr
+        with:
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tag unchanged image with current commit SHA
         run: |
@@ -490,3 +496,5 @@ jobs:
           status: ${{ (needs.build-server.result == 'failure' || needs.test-server.result == 'failure' || needs.sonar.result == 'failure' || needs.build-client.result == 'failure' || needs.test-client.result == 'failure' || needs.sonar-dashboard.result == 'failure' || needs.build-and-push.result == 'failure' || needs.tag-unchanged-images.result == 'failure') && 'failure' || 'success' }}
           workflow: CI
           details: "event=${{ github.event_name }} ref=${{ github.ref_name }}"
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

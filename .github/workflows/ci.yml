@@ -323,7 +323,7 @@ jobs:
   # ========================================================================
 
   sonar:
-    name: SonarQube Scan
+    name: SonarQube Scan Server
     needs:
       - changes
       - test-server
@@ -374,7 +374,7 @@ jobs:
         run: echo "SONAR_TOKEN not set, static analysis skipped. JaCoCo 80% gate is still enforced by test-server."
 
   sonar-dashboard:
-    name: SonarQube Scan (dashboard)
+    name: SonarQube Scan Client
     needs:
       - changes
       - test-client

@@ -268,7 +268,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Notify via Telegram (Lab 4)
+      - name: Notify via Telegram
         if: always()
         uses: ./.github/actions/telegram-notify
         with:

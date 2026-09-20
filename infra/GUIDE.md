@@ -19,8 +19,8 @@ infra/
     ├── terraform.tfvars.example
     ├── terraform.rc.example
     ├── base/   # VPC + subnet
-    ├── vm/     # VM под MongoDB/RabbitMQ + backup bucket (Lab 2)
-    └── k8s/    # Managed Kubernetes кластер (Lab 3)
+    ├── vm/     # VM под MongoDB/RabbitMQ + backup bucket
+    └── k8s/    # Managed Kubernetes кластер
 ```
 
 ## Требования
@@ -103,7 +103,7 @@ terraform output network_id
 terraform output subnet_id
 ```
 
-Деплой VM (Lab 2):
+Деплой VM:
 
 ```bash
 cd ../vm
@@ -119,7 +119,7 @@ terraform output backup_storage_secret_key
 Создаётся: `yandex_compute_instance.iot_vm` (4 CPU / 8 GB),
 security group с портами сервисов, SA + шифрованный S3-бакет под бэкапы MongoDB.
 
-Деплой K8s (Lab 3):
+Деплой K8s:
 
 ```bash
 cd ../k8s

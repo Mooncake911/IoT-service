@@ -58,25 +58,27 @@ jobs:
 
       - name: Parse inputs & set environment
         run: |
+          TAG_INPUT="${{ github.event.inputs.tag }}"
+          TAG_SOURCE="explicit input"
+          if [ -z "$TAG_INPUT" ]; then
+            # Default to the git-pinned tag from k8s/overlays so VM and K8s
+            # deploy the same version unless overridden explicitly.
+            PINNED="$(grep -rhE '^[[:space:]]*newTag: ' k8s/overlays/*/kustomization.yaml 2>/dev/null | sort -u || true)"
+            if [ "$(printf '%s\n' "$PINNED" | wc -l)" -eq 1 ] && [ -n "$PINNED" ]; then
+              TAG_INPUT="$(printf '%s' "$PINNED" | sed -E 's/^[[:space:]]*newTag: //')"
+              TAG_SOURCE="git pin"
+            else
+              TAG_INPUT="${{ github.sha }}"
+              TAG_SOURCE="commit SHA (no single pinned tag found)"
+            fi
+          fi
           {
             echo "ACTION=${{ github.event.inputs.action }}"
-
-            TAG_INPUT="${{ github.event.inputs.tag }}"
-            if [ -z "$TAG_INPUT" ]; then
-              # Default to the git-pinned tag from k8s/overlays so VM and K8s
-              # deploy the same version unless overridden explicitly.
-              PINNED="$(grep -rhE '^[[:space:]]*newTag: ' k8s/overlays/*/kustomization.yaml 2>/dev/null | sort -u || true)"
-              if [ "$(printf '%s\n' "$PINNED" | wc -l)" -eq 1 ] && [ -n "$PINNED" ]; then
-                TAG_INPUT="$(printf '%s' "$PINNED" | sed -E 's/^[[:space:]]*newTag: //')"
-                echo "Using git-pinned tag: $TAG_INPUT"
-              else
-                TAG_INPUT="${{ github.sha }}"
-              fi
-            fi
             echo "TAG=$TAG_INPUT"
             echo "RUN_TERRAFORM=${{ github.event.inputs.run_terraform }}"
             echo "ENABLE_OBSERVABILITY=${{ github.event.inputs.enable_observability }}"
           } >> "$GITHUB_ENV"
+          echo "Deploying tag: $TAG_INPUT ($TAG_SOURCE)"
 
       - name: Setup Terraform
         if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
@@ -304,7 +306,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Notify via Telegram (Lab 4)
+      - name: Notify via Telegram
         if: always()
         uses: ./.github/actions/telegram-notify
         with:

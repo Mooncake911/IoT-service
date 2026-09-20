@@ -265,7 +265,7 @@ curl -s http://localhost:5601/api/status -H "kbn-xsrf: true"
 `live/by-manufacturer`, `report/window`. CD вызывает его автоматически
 после VM- и K8s-деплоя.
 
-## 11. Лаба 4: SonarQube, ArgoCD, Telegram-бот
+## 11. SonarQube, ArgoCD, Telegram-бот
 
 SonarQube (`ci.yml` jobs `sonar` + `sonar-dashboard`): нужен только секрет
 `SONAR_TOKEN` (плюс опционально `SONAR_HOST_URL` для самоподнятого сервера —

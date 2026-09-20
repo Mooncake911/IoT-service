@@ -187,7 +187,7 @@ jobs:
           backend-access-key: ${{ secrets.YC_STORAGE_ACCESS_KEY }}
           backend-secret-key: ${{ secrets.YC_STORAGE_SECRET_KEY }}
 
-      - name: Notify via Telegram (Lab 4)
+      - name: Notify via Telegram
         if: always()
         uses: ./.github/actions/telegram-notify
         with:

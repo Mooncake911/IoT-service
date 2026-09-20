@@ -1,4 +1,4 @@
-- name: Deploy databases to VM — Lab 3
+- name: Deploy databases to VM
   hosts: iot_vm
   become: false
 
@@ -121,7 +121,7 @@
     # this playbook runs — never kubectl set image here, it would fight
     # ArgoCD selfHeal. This play prepares everything ArgoCD must not
     # own: namespace-adjacent Secrets/ConfigMaps with live values.
-    # The no-ArgoCD fallback below (Lab 3 mode without GitOps) applies
+    # The no-ArgoCD fallback below (plain mode without GitOps) applies
     # the same local tree directly — tags still come from git,
     # so there is nothing to pin here either.
 
@@ -219,7 +219,7 @@
       when: enable_observability | bool
 
     # ============================================================
-    # ArgoCD GitOps (Lab 4, opt-in via enable_argocd=true).
+    # ArgoCD GitOps (opt-in via enable_argocd=true).
     # Installs ArgoCD core once, then ArgoCD owns ALL workload sync
     # from git (Applications in k8s/argocd/). This play only prepares
     # what ArgoCD must not own (Secrets/ConfigMaps with live values)

@@ -1,4 +1,4 @@
-# ArgoCD Application for IoT workloads (Lab 4, GitOps).
+# ArgoCD Application for IoT workloads (GitOps).
 # Source of truth is this git repo (Kustomize root at k8s/).
 # On forks change spec.source.repoURL to your repo.
 apiVersion: argoproj.io/v1alpha1

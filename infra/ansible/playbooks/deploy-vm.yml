@@ -1,4 +1,4 @@
-- name: Deploy IoT to VM (Docker Compose) — Lab 2
+- name: Deploy IoT to VM (Docker Compose)
   hosts: iot_vm
   become: false
 

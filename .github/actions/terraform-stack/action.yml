@@ -67,6 +67,12 @@ runs:
         BACKEND_ACCESS_KEY: ${{ inputs.backend-access-key }}
         BACKEND_SECRET_KEY: ${{ inputs.backend-secret-key }}
         EXTRA_VARS: ${{ inputs.extra-vars }}
+        # S3-compatible backend (Yandex Object Storage) resolves credentials
+        # ONLY via the standard AWS chain — backend-config flags alone are
+        # not enough for state locking/reads/writes during apply & destroy.
+        AWS_ACCESS_KEY_ID: ${{ inputs.backend-access-key }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.backend-secret-key }}
+        AWS_EC2_METADATA_DISABLED: "true"
       run: |
         set -euo pipefail
         cd "infra/terraform/${STACK}"

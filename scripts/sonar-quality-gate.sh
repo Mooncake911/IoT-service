@@ -40,7 +40,14 @@ while [ "$attempt" -le "$TIMEOUT_ATTEMPTS" ]; do
     echo ""
     exit 1
   fi
-  STATUS="$(python3 -c "import sys,json; print(json.load(open('$RESP_FILE'))['projectStatus']['status'])")"
+  STATUS="$(python3 -c "import sys,json; print(json.load(open('$RESP_FILE'))['projectStatus']['status'])" 2>/dev/null)" || {
+    echo "Attempt $attempt/$TIMEOUT_ATTEMPTS: unparseable API response (transient?), retrying. Body head:"
+    head -c 300 "$RESP_FILE"
+    echo ""
+    attempt=$((attempt + 1))
+    sleep "$SLEEP_SECONDS"
+    continue
+  }
   echo "Attempt $attempt/$TIMEOUT_ATTEMPTS: $STATUS"
   if [ "$STATUS" = "OK" ]; then
     echo "Quality gate passed."

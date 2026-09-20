@@ -23,4 +23,6 @@ runs:
     - name: Install dependencies
       shell: bash
       working-directory: iot-dashboard
-      run: npm ci
+      # --ignore-scripts blocks lifecycle scripts of transitive deps (Sonar).
+      # Safe here: esbuild/vite ship platform binaries via optionalDependencies.
+      run: npm ci --ignore-scripts

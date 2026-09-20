@@ -105,22 +105,22 @@ jobs:
           # Apply network base
           cd infra/terraform/base
           terraform init -input=false \
-            -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
-            -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+            -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+            -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
           terraform apply -auto-approve \
-            -var="yc_cloud_id=${{ secrets.YC_CLOUD_ID }}" \
-            -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
+            -var="yc_cloud_id=$YC_CLOUD_ID" \
+            -var="yc_folder_id=$YC_FOLDER_ID" \
             -var="yc_service_account_key_file=/tmp/yc-sa-key.json"
           # Apply VM
           cd ../vm
           terraform init -input=false \
-            -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
-            -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+            -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+            -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
           terraform apply -auto-approve \
-            -var="yc_cloud_id=${{ secrets.YC_CLOUD_ID }}" \
-            -var="yc_folder_id=${{ secrets.YC_FOLDER_ID }}" \
+            -var="yc_cloud_id=$YC_CLOUD_ID" \
+            -var="yc_folder_id=$YC_FOLDER_ID" \
             -var="yc_service_account_key_file=/tmp/yc-sa-key.json" \
-            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+            -var="ssh_public_key=$SSH_PUBLIC_KEY"
           # Apply K8s if deploy target is k8s
           if [ "${{ env.DEPLOY_TARGET }}" = "k8s" ]; then
             cd ../k8s
@@ -146,8 +146,8 @@ jobs:
             cd infra/terraform/vm
             if [ ! -d ".terraform" ]; then
               terraform init -input=false \
-                -backend-config="access_key=${{ secrets.YC_STORAGE_ACCESS_KEY }}" \
-                -backend-config="secret_key=${{ secrets.YC_STORAGE_SECRET_KEY }}"
+                -backend-config="access_key=$YC_STORAGE_ACCESS_KEY" \
+                -backend-config="secret_key=$YC_STORAGE_SECRET_KEY"
             fi
             IP=$(terraform output -raw vm_public_ip)
             echo "VM_IP=$IP" >> "$GITHUB_ENV"
@@ -188,7 +188,7 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
       - name: Wait for VM SSH connection
@@ -246,14 +246,14 @@ jobs:
       - name: Install kubectl (K8s and VM-teardown paths)
         if: env.DEPLOY_TARGET == 'k8s' || (env.DEPLOY_TARGET == 'vm' && vars.K8S_CLUSTER_NAME != '')
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
       - name: Install Yandex Cloud CLI (K8s and VM-teardown paths)
         if: env.DEPLOY_TARGET == 'k8s' || (env.DEPLOY_TARGET == 'vm' && vars.K8S_CLUSTER_NAME != '')
         run: |
-          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          curl --proto "=https" -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
           echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
 
       - name: Get kubeconfig from Yandex Cloud (K8s mode)
@@ -264,8 +264,8 @@ jobs:
           ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
           yc managed-kubernetes cluster get-credentials \
-            --name ${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }} \
-            --folder-id ${{ secrets.YC_FOLDER_ID }} \
+            --name "${{ vars.K8S_CLUSTER_NAME || 'iot-k8s' }}" \
+            --folder-id "$YC_FOLDER_ID" \
             --external
 
       - name: Teardown K8s app workloads before VM deploy
@@ -280,29 +280,33 @@ jobs:
           fi
           ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
           yc config set service-account-key /tmp/yc-sa-key.json
-          if ! yc managed-kubernetes cluster get --name ${{ vars.K8S_CLUSTER_NAME }} --folder-id ${{ secrets.YC_FOLDER_ID }} >/dev/null 2>&1; then
+          if ! yc managed-kubernetes cluster get --name "${{ vars.K8S_CLUSTER_NAME }}" --folder-id "$YC_FOLDER_ID" >/dev/null 2>&1; then
             echo "Cluster ${{ vars.K8S_CLUSTER_NAME }} not found, skip teardown."
             exit 0
           fi
           yc managed-kubernetes cluster get-credentials \
-            --name ${{ vars.K8S_CLUSTER_NAME }} \
-            --folder-id ${{ secrets.YC_FOLDER_ID }} \
+            --name "${{ vars.K8S_CLUSTER_NAME }}" \
+            --folder-id "$YC_FOLDER_ID" \
             --external
           ./scripts/k8s-down.sh
 
       - name: Run Ansible Application Deployment (VM mode)
         if: env.DEPLOY_TARGET == 'vm'
         working-directory: infra/ansible
+        env:
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ansible-playbook playbooks/deploy-vm.yml -i inventory.ini \
-            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=$REGISTRY_PASSWORD github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} backup_bucket_name=${{ env.BACKUP_BUCKET }} backup_storage_access_key=${{ env.BACKUP_ACCESS_KEY }} backup_storage_secret_key=${{ env.BACKUP_SECRET_KEY }}"
 
       - name: Run Ansible Database Deployment (K8s mode)
         if: env.DEPLOY_TARGET == 'k8s'
         working-directory: infra/ansible
+        env:
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ansible-playbook playbooks/deploy-k8s.yml -i inventory.ini \
-            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=${{ secrets.GITHUB_TOKEN }} github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} enable_argocd=${{ github.event.inputs.enable_argocd }}"
+            --extra-vars "app_version=${{ env.TAG }} registry_username=${{ github.actor }} registry_password=$REGISTRY_PASSWORD github_owner=${{ github.repository_owner }} deploy_action=${{ env.ACTION }} vm_internal_ip=${{ env.VM_INTERNAL_IP }} enable_observability=${{ env.ENABLE_OBSERVABILITY }} enable_argocd=${{ github.event.inputs.enable_argocd }}"
 
       # ============================================================
       # VM POST-DEPLOY

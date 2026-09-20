@@ -364,10 +364,38 @@ jobs:
 
       - name: SonarQube quality gate
         if: ${{ env.SONAR_TOKEN != '' }}
-        uses: SonarSource/sonarqube-quality-gate-action@v1
-        timeout-minutes: 5
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$SONAR_PROJECT_KEY" ]; then
+            echo "SONAR_PROJECT_KEY is not set, cannot check the quality gate."
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
+            QUERY="projectKey=$SONAR_PROJECT_KEY&pullRequest=$PR_NUMBER"
+          else
+            QUERY="projectKey=$SONAR_PROJECT_KEY&branch=$GITHUB_REF_NAME"
+          fi
+          echo "Polling quality gate status for $QUERY ..."
+          for i in $(seq 1 20); do
+            STATUS=$(curl -s -u "$SONAR_TOKEN:" \
+              "$SONAR_HOST_URL/api/qualitygates/project_status?$QUERY" |
+              python3 -c "import sys,json; print(json.load(sys.stdin)['projectStatus']['status'])")
+            echo "Attempt $i/20: $STATUS"
+            if [ "$STATUS" = "OK" ]; then
+              echo "Quality gate passed."
+              exit 0
+            fi
+            if [ "$STATUS" = "ERROR" ]; then
+              echo "Quality gate FAILED."
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Quality gate status unknown after 5 minutes."
+          exit 1
 
       - name: Sonar skipped (no SONAR_TOKEN)
         if: ${{ env.SONAR_TOKEN == '' }}
@@ -423,10 +451,33 @@ jobs:
 
       - name: SonarQube quality gate (dashboard)
         if: ${{ steps.readiness.outputs.ready == 'true' }}
-        uses: SonarSource/sonarqube-quality-gate-action@v1
-        timeout-minutes: 5
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
+            QUERY="projectKey=$SONAR_PROJECT_KEY_DASHBOARD&pullRequest=$PR_NUMBER"
+          else
+            QUERY="projectKey=$SONAR_PROJECT_KEY_DASHBOARD&branch=$GITHUB_REF_NAME"
+          fi
+          echo "Polling quality gate status for $QUERY ..."
+          for i in $(seq 1 20); do
+            STATUS=$(curl -s -u "$SONAR_TOKEN:" \
+              "$SONAR_HOST_URL/api/qualitygates/project_status?$QUERY" |
+              python3 -c "import sys,json; print(json.load(sys.stdin)['projectStatus']['status'])")
+            echo "Attempt $i/20: $STATUS"
+            if [ "$STATUS" = "OK" ]; then
+              echo "Quality gate passed."
+              exit 0
+            fi
+            if [ "$STATUS" = "ERROR" ]; then
+              echo "Quality gate FAILED."
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Quality gate status unknown after 5 minutes."
+          exit 1
 
       - name: Sonar skipped (not configured)
         if: ${{ steps.readiness.outputs.ready != 'true' }}

@@ -5,7 +5,7 @@
   tasks:
     - name: Assert iot_vm hosts exist in inventory
       ansible.builtin.assert:
-        that: groups['iot_vm'] | length > 0
+        that: groups.get('iot_vm', []) | length > 0
         fail_msg: "No iot_vm hosts in inventory — the database deploy play would be skipped silently. Check VM_IP resolution (vars.VM_IP or terraform output)."
 
 - name: Deploy databases to VM

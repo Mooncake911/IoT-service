@@ -149,6 +149,12 @@ jobs:
           ssh-user: ubuntu
           ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Show generated inventory (debug)
+        run: |
+          wc -c infra/ansible/inventory.ini || true
+          cat infra/ansible/inventory.ini || true
+          od -c infra/ansible/inventory.ini | head -8 || true
+
       - name: Install Ansible
         uses: ./.github/actions/setup-ansible
 

@@ -31,13 +31,19 @@ images:
     newTag: 8.11.0
   - name: docker.elastic.co/kibana/kibana
     newTag: 8.11.0
-  - name: prom/prometheus
-    newTag: v2.48.0
-  - name: grafana/grafana
-    newTag: 10.2.0
-  - name: docker.io/fluent/fluent-bit
-    newTag: "2.2"
+  # Mirror in Yandex CR: docker.io is unreachable from some cluster nodes.
   - name: busybox
+    newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/mirror/busybox
     newTag: "1.36"
   - name: curlimages/curl
+    newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/mirror/curlimages-curl
     newTag: 8.10.1
+  - name: docker.io/fluent/fluent-bit
+    newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/mirror/fluent-fluent-bit
+    newTag: "2.2"
+  - name: prom/prometheus
+    newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/mirror/prom-prometheus
+    newTag: v2.48.0
+  - name: grafana/grafana
+    newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/mirror/grafana-grafana
+    newTag: 10.2.0

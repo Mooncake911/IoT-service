@@ -285,6 +285,28 @@
     # asynchronously. Every workload wait below assumes synced resources,
     # and `kubectl wait` on an empty selector fails INSTANTLY (no polling),
     # so gate everything on sync+health here first.
+
+    # Diagnostics before the health gate so a timeout isn't a black box.
+    - name: Show ArgoCD observability app health (diagnose)
+      ansible.builtin.shell: |
+        kubectl -n argocd get application iot-observability -o json | jq '{sync: .status.sync, health: .status.health, conditions: .status.conditions}' || kubectl -n argocd get application iot-observability -o jsonpath='{.status}'
+      changed_when: false
+      failed_when: false
+      when:
+        - enable_argocd | bool
+        - enable_observability | bool
+
+    - name: Show observability pods and events (diagnose)
+      ansible.builtin.shell: |
+        kubectl -n iot get pods -o wide
+        echo "---- events ----"
+        kubectl -n iot get events --sort-by=.lastTimestamp | tail -30
+      changed_when: false
+      failed_when: false
+      when:
+        - enable_argocd | bool
+        - enable_observability | bool
+
     - name: Wait for ArgoCD app sync (healthy)
       ansible.builtin.shell: |
         kubectl wait --for=jsonpath='{.status.sync.status}'=Synced application/iot-app -n argocd --timeout=600s

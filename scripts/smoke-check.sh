@@ -67,13 +67,19 @@ case "$code" in
 esac
 
 echo "Polling analytics history..."
+# History is written once per analytics window (bufferTimeout): the config
+# POST above restarts the window timer, so polling must cover windowSeconds
+# (50s) plus margin — otherwise history is guaranteed to still be empty.
 history=""
 attempt=1
-while [ "$attempt" -le 8 ]; do
+while [ "$attempt" -le 32 ]; do
   sleep 2
   history=$(curl -s "$GATEWAY_URL/api/v1/analytics/history?limit=5")
   if [ -n "$history" ] && [ "$history" != "[]" ]; then
     break
+  fi
+  if [ $((attempt % 10)) -eq 0 ]; then
+    echo "  ...still waiting for the analytics window to close (${attempt}/32)"
   fi
   attempt=$((attempt + 1))
 done

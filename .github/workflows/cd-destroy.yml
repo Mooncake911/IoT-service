@@ -27,8 +27,6 @@ jobs:
   destroy:
     name: Destroy infrastructure
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     # All cloud credentials enter scripts via environment (never inline
     # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
     env:
@@ -94,10 +92,7 @@ jobs:
 
       - name: Install Ansible
         if: github.event.inputs.target == 'vm'
-        run: |
-          pipx install ansible-core
-          pipx inject ansible-core ansible-compat
-          ansible-galaxy collection install community.docker
+        uses: ./.github/actions/setup-ansible
 
       - name: Get Backup Storage Details from Terraform
         if: github.event.inputs.target == 'vm'
@@ -162,18 +157,13 @@ jobs:
       # ============================================================
       - name: Install kubectl (k8s)
         if: github.event.inputs.target == 'k8s'
-        run: |
-          curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+        uses: ./.github/actions/install-kubectl
 
-      # (yc CLI is already installed by the mint step above.)
+      # (yc CLI profile is already persisted by the mint step above.)
       - name: Teardown K8s workloads (k8s)
         if: github.event.inputs.target == 'k8s'
         run: |
           set -euo pipefail
-          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
-          yc config set service-account-key /tmp/yc-sa-key.json
           if [ -n "${{ vars.K8S_CLUSTER_NAME }}" ]; then
             yc managed-kubernetes cluster get-credentials \
               --name "${{ vars.K8S_CLUSTER_NAME }}" \

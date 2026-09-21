@@ -38,9 +38,6 @@ jobs:
   deploy:
     name: Deploy to Yandex Cloud VM
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     # All cloud credentials enter scripts via environment (never inline
     # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
     env:
@@ -86,8 +83,9 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "Deploying tag: $TAG_INPUT ($TAG_SOURCE)"
 
+      # Always installed: the backup-details step below needs the terraform
+      # binary for state outputs even when run_terraform=false.
       - name: Setup Terraform
-        if: ${{ env.RUN_TERRAFORM == 'true' || vars.VM_IP == '' }}
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.15.5"
@@ -118,7 +116,6 @@ jobs:
           backend-secret-key: ${{ env.S3_SECRET_ACCESS_KEY }}
 
       - name: Determine VM IP
-        id: get-ip
         env:
           AWS_ACCESS_KEY_ID: ${{ env.S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ env.S3_SECRET_ACCESS_KEY }}
@@ -140,7 +137,6 @@ jobs:
           fi
 
       - name: Get Backup Storage Details from Terraform
-        id: get-backup-details
         env:
           AWS_ACCESS_KEY_ID: ${{ env.S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ env.S3_SECRET_ACCESS_KEY }}
@@ -177,10 +173,7 @@ jobs:
           ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Install Ansible
-        run: |
-          pipx install ansible-core
-          pipx inject ansible-core ansible-compat
-          ansible-galaxy collection install community.docker
+        uses: ./.github/actions/setup-ansible
 
       - name: Log in to GHCR for image checks
         if: env.ACTION == 'deploy'
@@ -214,34 +207,7 @@ jobs:
         run: |
           ansible-playbook playbooks/install-docker.yml -i inventory.ini
 
-      - name: Install kubectl (VM-teardown path)
-        if: vars.K8S_CLUSTER_NAME != ''
-        run: |
-          curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      # Switching VM <- K8s: unmanage the cluster from GitOps FIRST,
-      # otherwise ArgoCD selfHeal restores workloads during/after teardown.
-      # (yc CLI is already installed by the mint step above.)
-      - name: Teardown K8s world before VM deploy
-        if: vars.K8S_CLUSTER_NAME != ''
-        run: |
-          set -euo pipefail
-          ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
-          yc config set service-account-key /tmp/yc-sa-key.json
-          if ! yc managed-kubernetes cluster get --name "${{ vars.K8S_CLUSTER_NAME }}" --folder-id "$YC_FOLDER_ID" >/dev/null 2>&1; then
-            echo "Cluster ${{ vars.K8S_CLUSTER_NAME }} not found, skip teardown."
-            exit 0
-          fi
-          yc managed-kubernetes cluster get-credentials \
-            --name "${{ vars.K8S_CLUSTER_NAME }}" \
-            --folder-id "$YC_FOLDER_ID" \
-            --external
-          kubectl delete -f k8s/argocd/ --ignore-not-found
-          ./scripts/k8s-down.sh
-
-      - name: Run Ansible Application Deployment (VM mode)
+      - name: Run Ansible Application Deployment
         working-directory: infra/ansible
         env:
           REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -252,7 +218,7 @@ jobs:
       # ============================================================
       # VM POST-DEPLOY
       # ============================================================
-      - name: Post-deploy verification of running containers (VM mode)
+      - name: Post-deploy verification of running containers
         run: |
           echo "Listing active docker containers on target VM..."
           ssh -o StrictHostKeyChecking=no ubuntu@${{ env.VM_IP }} "docker ps --format 'table {{.Names}}\t{{.Status}}'"
@@ -296,7 +262,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Deployment summary (VM mode)"
+            echo "## Deployment summary"
             echo ""
             echo "- Tag: \`${{ env.TAG }}\`"
             echo "- Gateway: http://${{ env.VM_IP }}:8085"

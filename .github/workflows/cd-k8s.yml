@@ -35,9 +35,6 @@ jobs:
   deploy:
     name: Deploy to Managed Kubernetes
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     # All cloud credentials enter scripts via environment (never inline
     # ${{ secrets.* }} in run: blocks — Sonar flags that as a hotspot).
     env:
@@ -116,7 +113,6 @@ jobs:
           backend-secret-key: ${{ env.S3_SECRET_ACCESS_KEY }}
 
       - name: Determine VM IP
-        id: get-ip
         env:
           AWS_ACCESS_KEY_ID: ${{ env.S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ env.S3_SECRET_ACCESS_KEY }}
@@ -145,10 +141,7 @@ jobs:
           ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Install Ansible
-        run: |
-          pipx install ansible-core
-          pipx inject ansible-core ansible-compat
-          ansible-galaxy collection install community.docker
+        uses: ./.github/actions/setup-ansible
 
       - name: Log in to GHCR for image checks
         uses: ./.github/actions/docker-login-ghcr
@@ -181,10 +174,7 @@ jobs:
           ansible-playbook playbooks/install-docker.yml -i inventory.ini
 
       - name: Install kubectl
-        run: |
-          curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+        uses: ./.github/actions/install-kubectl
 
       # (yc CLI is already installed by the mint step above.)
       - name: Get kubeconfig from Yandex Cloud
@@ -251,7 +241,7 @@ jobs:
             NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
           fi
           {
-            echo "## Deployment summary (K8s mode)"
+            echo "## Deployment summary"
             echo ""
             echo "- Tag: \`${{ env.TAG }}\` (from git pin)"
             if [ -n "$NODE_IP" ]; then

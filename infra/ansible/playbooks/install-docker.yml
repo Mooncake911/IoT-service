@@ -40,11 +40,16 @@
         force: true
 
     - name: Add Docker repository
-      ansible.builtin.apt_repository:
-        repo: "deb [arch={{ docker_arch_map[ansible_facts.architecture] | default('amd64') }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: [deb]
+        uris: ["https://download.docker.com/linux/ubuntu"]
+        suites: ["{{ ansible_facts['distribution_release'] }}"]
+        components: [stable]
+        architectures: ["{{ docker_arch_map[ansible_facts.architecture] | default('amd64') }}"]
+        signed_by: /etc/apt/keyrings/docker.asc
         state: present
-        filename: docker
-        update_cache: yes
+        enabled: true
 
     # ========================================================================
     # 3. INSTALL DOCKER ENGINE
@@ -97,11 +102,10 @@
         append: true
       register: user_updated
 
-    - name: Warn about group membership
-      ansible.builtin.debug:
-        msg: |
-          User {{ docker_user }} has been added to the docker group.
-          Changes will take effect after the user logs out and back in.
+    # Group membership applies only to NEW sessions: drop the current SSH
+    # connection so the post-install check below runs with docker rights.
+    - name: Reset SSH connection to pick up docker group membership
+      ansible.builtin.meta: reset_connection
       when: user_updated.changed
 
     # ========================================================================
@@ -122,18 +126,14 @@
     # ========================================================================
     # 8. POST-INSTALLATION CHECKS
     # ========================================================================
+    # Authoritative now: connection was reset above, so a failure here
+    # means docker truly misbehaves — fail loudly instead of warning.
     - name: Check if Docker can run without sudo
       ansible.builtin.shell:
         cmd: docker ps
       become_user: "{{ docker_user }}"
       register: docker_ps_test
       changed_when: false
-      ignore_errors: true
-
-    - name: Warn if Docker requires sudo
-      ansible.builtin.debug:
-        msg: "⚠️ User {{ docker_user }} may need to log out and back in to use Docker without sudo"
-      when: docker_ps_test.rc != 0
 
   handlers:
     - name: restart docker

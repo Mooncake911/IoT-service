@@ -477,6 +477,8 @@ jobs:
           build-args: |
             SERVICE_NAME=${{ matrix.service }}
           push: ${{ github.event_name != 'pull_request' }}
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |

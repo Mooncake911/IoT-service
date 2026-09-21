@@ -44,4 +44,4 @@ patches:
 images:
   - name: iot-backend
     newName: ghcr.io/mooncake911/iot-service/iot-controller
-    newTag: 1cc610de1ecc858ac48263766988845244c91d21
+    newTag: beeb992afa41a969a1456e8e4af6c7faaced77b9

@@ -46,6 +46,9 @@ runs:
         fi
         ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
         echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> "$GITHUB_ENV"
+        # Authenticate THIS shell too: GITHUB_ENV applies only to later steps,
+        # but the yc calls below run right here.
+        export YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json
         SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
         # Fail fast when the deploy SA itself is gone (deleted out-of-band):
         # every later yc/terraform call would die with cryptic Unauthenticated.
@@ -119,6 +122,11 @@ runs:
           exit 0
         fi
         export PATH="$HOME/yandex-cloud/bin:$PATH"
+        # Do not rely solely on the persisted yc profile from mint;
+        # re-authenticate from the key file if it is still around.
+        if [ -f /tmp/yc-sa-key.json ]; then
+          export YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json
+        fi
         SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
         # create-output carries no deletable resource id, so resolve it by
         # matching our auth key_id in the key listing.

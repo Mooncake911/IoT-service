@@ -14,7 +14,8 @@ inputs:
     required: true
   owner:
     description: Repository owner for ghcr.io namespace (any case)
-    required: true
+    required: false
+    default: ""
   ref:
     description: Branch to check out and push the pin commit to
     required: false
@@ -43,17 +44,20 @@ runs:
           svc="${pair%%:*}"
           dir="${pair##*:}"
           f="k8s/overlays/${dir}/kustomization.yaml"
+          # If newName still points at ghcr.io, rewrite the owner part;
+          # cr.yandex paths are left untouched (registry id is fixed).
           sed -i -E "s|(newName: ghcr.io/)[^/]+(/iot-service/${svc})$|\1${OWNER_LC}\2|" "$f"
           sed -i -E "s|^([[:space:]]*newTag: ).*|\1${TAG}|" "$f"
         done
-        # Verify: all 6 overlays carry exactly the requested tag and owner.
+        # Verify: all 6 overlays carry exactly the requested tag.
         mapfile -t tags < <(grep -rhE "^[[:space:]]*newTag: " k8s/overlays/*/kustomization.yaml | sort -u)
         if [ "${#tags[@]}" -ne 1 ] || [ "${tags[0]}" != "    newTag: ${TAG}" ]; then
           echo "newTag verification failed:"; printf '  %s\n' "${tags[@]}"; exit 1
         fi
-        mismatched="$(grep -rh "newName:" k8s/overlays/*/kustomization.yaml | grep -vc "ghcr.io/${OWNER_LC}/" || true)"
+        # Verify: every overlay newName points at a registry.
+        mismatched="$(grep -rh "newName:" k8s/overlays/*/kustomization.yaml | grep -Evc "(ghcr.io/${OWNER_LC}|cr.yandex)/iot-service/" || true)"
         if [ "$mismatched" -ne 0 ]; then
-          echo "newName owner verification failed (${mismatched} lines)"; exit 1
+          echo "newName registry verification failed (${mismatched} lines)"; exit 1
         fi
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"

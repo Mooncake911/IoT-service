@@ -1,0 +1,26 @@
+# Composite: Docker Buildx + login to Yandex Container Registry.
+# YCR accepts a service-account authorized key as "json_key" password,
+# so no yc CLI / IAM token dance is needed in ephemeral GH runners.
+# The key comes as an input (composite steps cannot read `secrets`).
+name: docker-login-ycr
+description: Set up Docker Buildx and log in to Yandex Container Registry
+
+inputs:
+  sa-key-json:
+    description: "Yandex Cloud service account authorized key (JSON), i.e. secrets.YC_SA_KEY_JSON"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Log in to Yandex Container Registry
+      shell: bash
+      env:
+        SA_KEY_JSON: ${{ inputs.sa-key-json }}
+      run: |
+        printf '%s' "${SA_KEY_JSON}" > /tmp/ycr-sa-key.json
+        docker login cr.yandex --username json_key --password-stdin < /tmp/ycr-sa-key.json
+        rm -f /tmp/ycr-sa-key.json

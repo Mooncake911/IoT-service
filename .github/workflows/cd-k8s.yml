@@ -149,21 +149,32 @@ jobs:
           username: ${{ github.actor }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Yandex Container Registry
+        uses: ./.github/actions/docker-login-ycr
+        with:
+          sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+
       - name: Ensure container images exist for deploy tag
         run: |
           set -euo pipefail
           OWNER_LC="${OWNER,,}"
           TAG="${{ env.TAG }}"
+          YCR="cr.yandex/crppvev0ar439gma3l6q"
           services=(iot-controller iot-analytics iot-alerts iot-data-gateway iot-data-simulator iot-dashboard-ui iot-rabbitmq)
 
           for svc in "${services[@]}"; do
-            image="ghcr.io/${OWNER_LC}/iot-service/${svc}"
-            if docker buildx imagetools inspect "${image}:${TAG}" >/dev/null 2>&1; then
-              echo "Image ${image}:${TAG} already exists"
+            ghcr_image="ghcr.io/${OWNER_LC}/iot-service/${svc}"
+            ycr_image="${YCR}/iot-service/${svc}"
+            if docker buildx imagetools inspect "${ycr_image}:${TAG}" >/dev/null 2>&1; then
+              echo "Image ${ycr_image}:${TAG} already exists"
               continue
             fi
-            echo "Tag ${TAG} missing for ${svc}, retagging from latest..."
-            docker buildx imagetools create -t "${image}:${TAG}" "${image}:latest"
+            echo "Tag ${TAG} missing for ${svc} in YCR, mirroring from GHCR..."
+            # Ensure the source tag exists on GHCR first (retag from latest if needed).
+            if ! docker buildx imagetools inspect "${ghcr_image}:${TAG}" >/dev/null 2>&1; then
+              docker buildx imagetools create -t "${ghcr_image}:${TAG}" "${ghcr_image}:latest"
+            fi
+            docker buildx imagetools create -t "${ycr_image}:${TAG}" "${ghcr_image}:${TAG}"
           done
         env:
           OWNER: ${{ github.repository_owner }}

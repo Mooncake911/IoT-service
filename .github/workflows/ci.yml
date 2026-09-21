@@ -21,6 +21,8 @@ on:
       - "k8s/**"
   workflow_dispatch:
 
+env:
+  YCR_REGISTRY: cr.yandex/crppvev0ar439gma3l6q
 
 jobs:
   changes:
@@ -461,6 +463,11 @@ jobs:
           username: ${{ github.actor }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Yandex Container Registry
+        uses: ./.github/actions/docker-login-ycr
+        with:
+          sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
@@ -475,6 +482,8 @@ jobs:
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:${{ github.sha }}
             ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:latest
+            ${{ env.YCR_REGISTRY }}/iot-service/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.YCR_REGISTRY }}/iot-service/${{ matrix.service }}:latest
 
   # ========================================================================
   #  RETAG UNCHANGED IMAGES (if needed)
@@ -503,11 +512,19 @@ jobs:
           username: ${{ github.actor }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Yandex Container Registry
+        uses: ./.github/actions/docker-login-ycr
+        with:
+          sa-key-json: ${{ secrets.YC_SA_KEY_JSON }}
+
       - name: Tag unchanged image with current commit SHA
         run: |
           docker buildx imagetools create \
             -t ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:${{ github.sha }} \
             ghcr.io/${{ env.OWNER_LC }}/iot-service/${{ matrix.service }}:latest
+          docker buildx imagetools create \
+            -t ${{ env.YCR_REGISTRY }}/iot-service/${{ matrix.service }}:${{ github.sha }} \
+            ${{ env.YCR_REGISTRY }}/iot-service/${{ matrix.service }}:latest
   # ========================================================================
   #  PIN K8S IMAGES (GitOps: bot-commit tags so ArgoCD syncs them)
   # ========================================================================

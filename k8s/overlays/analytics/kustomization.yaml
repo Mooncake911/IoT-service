@@ -43,5 +43,5 @@ patches:
 
 images:
   - name: iot-backend
-    newName: ghcr.io/mooncake911/iot-service/iot-analytics
+    newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/iot-analytics
     newTag: 0b6240432097275341f99865dcf1fbe4b665d348

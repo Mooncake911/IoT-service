@@ -68,4 +68,4 @@ patches:
 images:
   - name: iot-backend
     newName: ghcr.io/mooncake911/iot-service/iot-dashboard-ui
-    newTag: latest
+    newTag: beeb992afa41a969a1456e8e4af6c7faaced77b9

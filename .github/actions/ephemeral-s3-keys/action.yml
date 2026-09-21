@@ -50,13 +50,9 @@ runs:
         # but the yc calls below run right here.
         export YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json
         SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
-        # Fail fast when the deploy SA itself is gone (deleted out-of-band):
-        # every later yc/terraform call would die with cryptic Unauthenticated.
-        if ! yc iam service-account get --id "$SA_ID" >/dev/null 2>&1; then
-          echo "ERROR: deploy service account $SA_ID from YC_SA_KEY_JSON does not exist in the cloud." >&2
-          echo "Recreate it and update the YC_SA_KEY_JSON secret (see infra/GUIDE.md, SA recovery)." >&2
-          exit 1
-        fi
+        # NOTE: no separate "does the SA exist" probe here on purpose —
+        # folder-scoped lookups give false negatives, while real operations
+        # below fail with truthful errors now that auth is set up.
         # Persist a yc CLI profile for this runner so later steps
         # (including revoke) work without extra setup.
         yc config set service-account-key /tmp/yc-sa-key.json >/dev/null

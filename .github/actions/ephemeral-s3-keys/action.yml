@@ -45,16 +45,8 @@ runs:
           export PATH="$HOME/yandex-cloud/bin:$PATH"
         fi
         ./scripts/ensure-yc-key.sh /tmp/yc-sa-key.json
-        echo "YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json" >> "$GITHUB_ENV"
-        # Authenticate THIS shell too: GITHUB_ENV applies only to later steps,
-        # but the yc calls below run right here.
-        export YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json
-        SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
-        # NOTE: no separate "does the SA exist" probe here on purpose —
-        # folder-scoped lookups give false negatives, while real operations
-        # below fail with truthful errors now that auth is set up.
-        # Persist a yc CLI profile for this runner so later steps
-        # (including revoke) work without extra setup.
+        # yc CLI does NOT read YC_SERVICE_ACCOUNT_KEY_FILE (proven locally);
+        # persist a profile so this shell AND later steps (revoke) are authed.
         yc config set service-account-key /tmp/yc-sa-key.json >/dev/null
         if [ -n "${{ inputs.yc-cloud-id }}" ]; then
           yc config set cloud-id "${{ inputs.yc-cloud-id }}" >/dev/null
@@ -118,10 +110,10 @@ runs:
           exit 0
         fi
         export PATH="$HOME/yandex-cloud/bin:$PATH"
-        # Do not rely solely on the persisted yc profile from mint;
-        # re-authenticate from the key file if it is still around.
+        # yc reads its profile (service-account-key persists from mint);
+        # re-point it to the key file in case the runner re-created it.
         if [ -f /tmp/yc-sa-key.json ]; then
-          export YC_SERVICE_ACCOUNT_KEY_FILE=/tmp/yc-sa-key.json
+          yc config set service-account-key /tmp/yc-sa-key.json >/dev/null
         fi
         SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
         # create-output carries no deletable resource id, so resolve it by

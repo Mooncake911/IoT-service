@@ -12,5 +12,4 @@ spec:
     - port: 5044
       targetPort: 5044
       name: beats
-      nodePort: 30444
-  type: NodePort
+  type: ClusterIP

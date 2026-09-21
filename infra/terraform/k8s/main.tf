@@ -87,6 +87,22 @@ resource "yandex_vpc_security_group" "k8s_node_sg" {
     v4_cidr_blocks = var.allowed_public_cidrs
   }
 
+  # Single edge: dashboard UI (NodePort 31080) proxies /grafana/, /prometheus/, /api/.
+  # Gateway (NodePort 30085) open only for direct API demos. No broad NodePort range.
+  ingress {
+    description    = "Allow dashboard UI NodePort (31080) from internet"
+    protocol       = "TCP"
+    port           = 31080
+    v4_cidr_blocks = var.allowed_public_cidrs
+  }
+
+  ingress {
+    description    = "Allow data gateway NodePort (30085) from internet"
+    protocol       = "TCP"
+    port           = 30085
+    v4_cidr_blocks = var.allowed_public_cidrs
+  }
+
   egress {
     description    = "Allow all outbound traffic"
     protocol       = "ANY"

@@ -17,7 +17,9 @@ spec:
       serviceAccountName: fluentbit
       containers:
         - name: fluentbit
-          image: cr.fluentbit.io/fluent/fluent-bit:2.2
+          # docker.io, not cr.fluentbit.io: that registry is unreachable from
+          # the node group (dial tcp i/o timeout), ArgoCD self-heals this DS.
+          image: docker.io/fluent/fluent-bit:2.2
           ports:
             - containerPort: 2020
               name: http

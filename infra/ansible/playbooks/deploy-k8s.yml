@@ -243,6 +243,18 @@
       changed_when: false
       when: enable_argocd | bool
 
+    # The stock manifest pulls redis from public.ecr.aws, which is
+    # unreachable from the node group (dial tcp i/o timeout). ArgoCD's
+    # repo-server needs the redis git-ref cache, so without this override
+    # every sync fails with "connect: connection refused" and the
+    # Applications stay sync=Unknown with zero resources deployed.
+    - name: Override ArgoCD redis image to docker.io
+      ansible.builtin.shell: |
+        kubectl -n argocd set image deployment/argocd-redis redis=docker.io/library/redis:7.2.5-alpine
+        kubectl -n argocd rollout status deployment/argocd-redis --timeout=600s
+      changed_when: false
+      when: enable_argocd | bool
+
     - name: Apply ArgoCD app Application
       ansible.builtin.shell: |
         kubectl apply -f "{{ k8s_manifest_dir }}/argocd/iot-app.yaml"

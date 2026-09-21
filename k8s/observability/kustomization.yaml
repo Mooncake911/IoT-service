@@ -35,7 +35,7 @@ images:
     newTag: v2.48.0
   - name: grafana/grafana
     newTag: 10.2.0
-  - name: cr.fluentbit.io/fluent/fluent-bit
+  - name: docker.io/fluent/fluent-bit
     newTag: "2.2"
   - name: busybox
     newTag: "1.36"

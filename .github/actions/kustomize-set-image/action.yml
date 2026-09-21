@@ -7,7 +7,7 @@ description: Pin K8s overlay image tags to a release and push [skip ci] commit
 
 inputs:
   token:
-    description: GitHub token with contents write (pass secrets.GITHUB_TOKEN)
+    description: Push token with contents write (ACTIONS_PUSH_TOKEN PAT)
     required: true
   tag:
     description: Image tag to pin in all overlays (e.g. commit SHA)

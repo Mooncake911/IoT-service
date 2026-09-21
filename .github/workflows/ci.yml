@@ -529,7 +529,9 @@ jobs:
       - name: Pin overlay tags to this commit
         uses: ./.github/actions/kustomize-set-image
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # PAT, not GITHUB_TOKEN: the bot token gets 403 on push in this
+          # repo despite contents:write (see troubleshooting log).
+          token: ${{ secrets.ACTIONS_PUSH_TOKEN }}
           tag: ${{ github.sha }}
           owner: ${{ github.repository_owner }}
 

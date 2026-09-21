@@ -40,4 +40,4 @@ patches:
 images:
   - name: iot-backend
     newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/iot-data-gateway
-    newTag: 297d9c2410546e5aaf1de8908747f7a0b956c945
+    newTag: 7b62fa7edca94d1bde3089e41c1481806b1a41bf

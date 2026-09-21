@@ -378,7 +378,7 @@
 
     - name: Wait for all pods to be ready
       ansible.builtin.shell: |
-        kubectl wait --for=condition=Ready pods --all -n iot --timeout=600s
+        kubectl wait --for=condition=Ready pods --all -n iot --field-selector=status.phase!=Succeeded --timeout=600s
       register: wait_pods
       changed_when: false
 

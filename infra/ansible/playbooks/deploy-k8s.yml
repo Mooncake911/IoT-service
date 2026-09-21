@@ -228,9 +228,13 @@
     - name: Install ArgoCD core
       ansible.builtin.shell: |
         kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-        kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+        kubectl apply -n argocd --server-side --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
       register: argocd_install
-      changed_when: '"created" in argocd_install.stdout or "configured" in argocd_install.stdout'
+      # NOTE: server-side apply is mandatory here, not a preference —
+      # the applicationsets CRD exceeds 256KB, so client-side apply
+      # fails with "metadata.annotations: Too long". --force-conflicts
+      # adopts objects from the previous partial client-side install.
+      changed_when: '"created" in argocd_install.stdout or "configured" in argocd_install.stdout or "serverside-applied" in argocd_install.stdout'
       when: enable_argocd | bool
 
     - name: Wait for ArgoCD server

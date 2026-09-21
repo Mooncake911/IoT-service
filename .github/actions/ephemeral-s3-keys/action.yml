@@ -55,9 +55,12 @@ runs:
           yc config set folder-id "${{ inputs.yc-folder-id }}" >/dev/null
         fi
         SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
-        # yc returns auth credentials; the deletable resource id is NOT
-        # in create output, so revoke() resolves it via `access-key list`.
-        # Auth pair may be named (key_id, secret) or (access_key, secret).
+        # Create the static access key. yc's AWS-shaped response is:
+        #   {"access_key": {"id": <res-id>, "key_id": "YCAJ..."}, "secret": ...}
+        # where access_key.key_id is the S3 auth id and access_key.id is the
+        # resource id used for delete.
+        RAW="$(yc iam access-key create --service-account-id "$SA_ID" \
+          --description "ephemeral-github-actions" --format json)"
         PARSED="$(printf '%s' "$RAW" | python3 -c "
         import sys, json
         try:
@@ -65,39 +68,33 @@ runs:
         except Exception:
             print('PARSE-FAILED')
             sys.exit(0)
-        def find_creds(d):
-            if isinstance(d, dict):
-                for pair in (('key_id', 'secret'), ('access_key', 'secret')):
-                    if pair[0] in d and pair[1] in d:
-                        return d[pair[0]], d[pair[1]]
-                for v in d.values():
-                    r = find_creds(v)
-                    if r:
-                        return r
-            elif isinstance(d, list):
-                for v in d:
-                    r = find_creds(v)
-                    if r:
-                        return r
-            return None
-        r = find_creds(d)
-        if not r or not all(r):
+        a = d.get('access_key') if isinstance(d, dict) else None
+        rid   = a.get('id')     if isinstance(a, dict) else None
+        keyid = a.get('key_id') if isinstance(a, dict) else None
+        if not keyid and isinstance(d, dict):
+            keyid = d.get('key_id')
+        if not rid and isinstance(d, dict):
+            rid = d.get('id')
+        secret = d.get('secret') if isinstance(d, dict) else None
+        if not keyid or not secret or not rid:
             print('PARSE-FAILED')
-        else:
-            print(r[0] + ' ' + r[1])
+            sys.exit(0)
+        print(rid + ' ' + keyid + ' ' + secret)
         ")"
         if [ "$PARSED" = "PARSE-FAILED" ]; then
-          echo "Could not parse access key from yc output (shape changed?). Top-level keys:" >&2
-          printf '%s' "$RAW" | python3 -c "import sys,json; x=json.load(sys.stdin); print(list(x.keys()) if isinstance(x, dict) else type(x).__name__)" >&2 || true
+          echo "Could not parse access key from yc output (shape changed?). Raw shape:" >&2
+          printf '%s' "$RAW" | python3 -c "import sys,json; x=json.load(sys.stdin); print(type(x).__name__, list(x.keys()) if isinstance(x,dict) else '')" >&2 || true
           exit 1
         fi
-        KEY_ID="$(printf '%s' "$PARSED" | cut -d' ' -f1)"
-        SECRET="$(printf '%s' "$PARSED" | cut -d' ' -f2-)"
+        KEY_RESOURCE_ID="$(printf '%s' "$PARSED" | cut -d' ' -f1)"
+        KEY_ID="$(printf '%s' "$PARSED" | cut -d' ' -f2)"
+        SECRET="$(printf '%s' "$PARSED" | cut -d' ' -f3-)"
         echo "::add-mask::$SECRET"
         {
           echo "S3_ACCESS_KEY_ID=$KEY_ID"
           echo "S3_SECRET_ACCESS_KEY=$SECRET"
           echo "S3_KEY_ID=$KEY_ID"
+          echo "S3_KEY_RESOURCE_ID=$KEY_RESOURCE_ID"
         } >> "$GITHUB_ENV"
         echo "Ephemeral S3 key minted."
 
@@ -105,7 +102,7 @@ runs:
       if: ${{ inputs.operation == 'revoke' }}
       shell: bash
       run: |
-        if [ -z "${S3_KEY_ID:-}" ]; then
+        if [ -z "${S3_KEY_RESOURCE_ID:-}" ]; then
           echo "No ephemeral key was minted in this job, nothing to revoke."
           exit 0
         fi
@@ -115,28 +112,9 @@ runs:
         if [ -f /tmp/yc-sa-key.json ]; then
           yc config set service-account-key /tmp/yc-sa-key.json >/dev/null
         fi
-        SA_ID="$(python3 -c "import json; print(json.load(open('/tmp/yc-sa-key.json'))['service_account_id'])")"
-        # create-output carries no deletable resource id, so resolve it by
-        # matching our auth key_id in the key listing.
-        RID="$(yc iam access-key list --service-account-id "$SA_ID" --format json 2>/dev/null | python3 -c "
-        import sys, json
-        try:
-            items = json.load(sys.stdin)
-        except Exception:
-            sys.exit(0)
-        if isinstance(items, dict):
-            items = items.get('access_keys', items.get('keys', []))
-        me = '$S3_KEY_ID'
-        for e in items if isinstance(items, list) else []:
-            if not isinstance(e, dict):
-                continue
-            if e.get('key_id') == me or e.get('access_key') == me:
-                print(e.get('id', ''))
-                break
-        " || true)"
-        if [ -n "$RID" ] && yc iam access-key delete "$RID" >/dev/null 2>&1; then
+        if yc iam access-key delete "$S3_KEY_RESOURCE_ID" >/dev/null 2>&1; then
           echo "Ephemeral S3 key revoked."
         else
-          echo "::warning::Could not revoke ephemeral key automatically (not found in listing or delete failed)."
+          echo "::warning::Could not revoke ephemeral key automatically."
           echo "::warning::Sweep leftovers with: yc iam access-key list --service-account-name <deploy-sa>"
         fi

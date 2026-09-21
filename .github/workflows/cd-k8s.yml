@@ -117,7 +117,12 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ env.S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ env.S3_SECRET_ACCESS_KEY }}
         run: |
+          set -euo pipefail
           if [ -n "${{ vars.VM_IP }}" ]; then
+            if [ -z "${{ vars.VM_INTERNAL_IP }}" ]; then
+              echo "ERROR: vars.VM_IP is set but vars.VM_INTERNAL_IP is empty." >&2
+              exit 1
+            fi
             echo "VM_IP=${{ vars.VM_IP }}" >> "$GITHUB_ENV"
             echo "VM_INTERNAL_IP=${{ vars.VM_INTERNAL_IP }}" >> "$GITHUB_ENV"
           else
@@ -128,6 +133,10 @@ jobs:
                 -backend-config="secret_key=$S3_SECRET_ACCESS_KEY"
             fi
             IP=$(terraform output -raw vm_public_ip)
+            if [ -z "$IP" ]; then
+              echo "ERROR: terraform output vm_public_ip is empty. Run the deploy with run_terraform=true or set vars.VM_IP." >&2
+              exit 1
+            fi
             echo "VM_IP=$IP" >> "$GITHUB_ENV"
             INTERNAL=$(terraform output -raw vm_internal_ip 2>/dev/null || echo "10.10.0.100")
             echo "VM_INTERNAL_IP=$INTERNAL" >> "$GITHUB_ENV"

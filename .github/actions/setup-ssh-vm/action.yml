@@ -66,4 +66,12 @@ runs:
         VM_IP: ${{ inputs.vm-ip }}
         SSH_USER: ${{ inputs.ssh-user }}
         SSH_KEY: ~/.ssh/id_ed25519
-      run: ./scripts/update-inventory.sh "${{ inputs.inventory-path }}"
+      run: |
+        set -euo pipefail
+        ./scripts/update-inventory.sh "${{ inputs.inventory-path }}"
+        if ! grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ansible_user=' \
+            "${{ inputs.inventory-path }}"; then
+          echo "ERROR: generated inventory '${{ inputs.inventory-path }}' has no reachable VM host:" >&2
+          cat "${{ inputs.inventory-path }}" >&2
+          exit 1
+        fi

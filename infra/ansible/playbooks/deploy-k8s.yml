@@ -259,6 +259,26 @@
         - enable_argocd | bool
         - enable_observability | bool
 
+    # The Applications above only DECLARE desired state — ArgoCD syncs
+    # asynchronously. Every workload wait below assumes synced resources,
+    # and `kubectl wait` on an empty selector fails INSTANTLY (no polling),
+    # so gate everything on sync+health here first.
+    - name: Wait for ArgoCD app sync (healthy)
+      ansible.builtin.shell: |
+        kubectl wait --for=jsonpath='{.status.sync.status}'=Synced application/iot-app -n argocd --timeout=600s
+        kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/iot-app -n argocd --timeout=600s
+      changed_when: false
+      when: enable_argocd | bool
+
+    - name: Wait for ArgoCD observability sync (healthy)
+      ansible.builtin.shell: |
+        kubectl wait --for=jsonpath='{.status.sync.status}'=Synced application/iot-observability -n argocd --timeout=600s
+        kubectl wait --for=jsonpath='{.status.health.status}'=Healthy application/iot-observability -n argocd --timeout=600s
+      changed_when: false
+      when:
+        - enable_argocd | bool
+        - enable_observability | bool
+
     - name: Check observability rollout status (observability mode)
       ansible.builtin.shell: |
         kubectl rollout status -n iot {{ item }} --timeout=300s

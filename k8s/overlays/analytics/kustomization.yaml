@@ -44,4 +44,4 @@ patches:
 images:
   - name: iot-backend
     newName: cr.yandex/crppvev0ar439gma3l6q/iot-service/iot-analytics
-    newTag: 49cf9e56bda2ddc90be02cf919c6265af75963d1
+    newTag: 297d9c2410546e5aaf1de8908747f7a0b956c945

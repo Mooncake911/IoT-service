@@ -1,0 +1,14 @@
+# Composite: install the kubectl CLI (stable release) on the runner.
+# Shared by cd-k8s and cd-destroy (k8s target).
+name: install-kubectl
+description: Install the kubectl CLI (stable release)
+
+runs:
+  using: composite
+  steps:
+    - name: Install kubectl
+      shell: bash
+      run: |
+        curl --proto "=https" -LO "https://dl.k8s.io/release/$(curl --proto "=https" -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/

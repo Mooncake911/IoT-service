@@ -1,0 +1,15 @@
+# Composite: install ansible-core + community.docker collection.
+# Shared by cd-vm, cd-k8s and cd-destroy so the install block
+# is not triplicated across workflows.
+name: setup-ansible
+description: Install ansible-core and the community.docker collection
+
+runs:
+  using: composite
+  steps:
+    - name: Install Ansible
+      shell: bash
+      run: |
+        pipx install ansible-core
+        pipx inject ansible-core ansible-compat
+        ansible-galaxy collection install community.docker

@@ -149,12 +149,6 @@ jobs:
           ssh-user: ubuntu
           ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Show generated inventory (debug)
-        run: |
-          wc -c infra/ansible/inventory.ini || true
-          cat infra/ansible/inventory.ini || true
-          od -c infra/ansible/inventory.ini | head -8 || true
-
       - name: Install Ansible
         uses: ./.github/actions/setup-ansible
 
@@ -222,6 +216,12 @@ jobs:
           token: ${{ secrets.ACTIONS_PUSH_TOKEN }}
           tag: ${{ env.TAG }}
           owner: ${{ github.repository_owner }}
+
+      # kustomize-set-image re-checks-out the repo (git clean -ffdx), which
+      # deleted our gitignored infra/ansible/inventory.ini — that silently
+      # emptied the Ansible inventory for the deploy below. Regenerate it.
+      - name: Regenerate Ansible inventory after git pin
+        run: ./scripts/update-inventory.sh infra/ansible/inventory.ini
 
       - name: Run Ansible Kubernetes Deployment
         working-directory: infra/ansible

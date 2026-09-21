@@ -55,7 +55,7 @@ runs:
           echo "newTag verification failed:"; printf '  %s\n' "${tags[@]}"; exit 1
         fi
         # Verify: every overlay newName points at a registry.
-        mismatched="$(grep -rh "newName:" k8s/overlays/*/kustomization.yaml | grep -Evc "(ghcr.io/${OWNER_LC}|cr.yandex)/iot-service/" || true)"
+        mismatched="$(grep -rh "newName:" k8s/overlays/*/kustomization.yaml | grep -Evc "(ghcr.io/${OWNER_LC}|cr.yandex/[^/]+)/iot-service/" || true)"
         if [ "$mismatched" -ne 0 ]; then
           echo "newName registry verification failed (${mismatched} lines)"; exit 1
         fi
